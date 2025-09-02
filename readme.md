@@ -1,6 +1,32 @@
 # The Creator Browser Wakes “God Mode” for your desktop application app.exe.
-## Every Desktop Application is a Super Web Browser
-## What Problem Do We Need to Solve?
+
+# How It Works: Enabling God Mode
+
+## Installation & Setup
+1. After installing **Creator**, you receive a lightweight 180KB application launcher named `proxy.exe`.
+2. If your desktop application is named `app.exe`, copy `proxy.exe` into the same directory.
+3. Rename `proxy.exe` to `appProxy.exe`.
+
+## Launch Modes
+- **Normal Mode**: Launch your original `app.exe` as usual.
+- **God Mode**: Launch `appProxy.exe` to enable enhanced capabilities.
+
+## Behind the Scenes
+When launched in God Mode:
+- `appProxy.exe` starts `app.exe` as the **Browser Process** of the Creator Browser.
+- `appProxy.exe` exits immediately and plays no further role.
+
+## What Happens in God Mode?
+Your application transforms into an **application content ecosystem interpreter** capable of:
+- Translating **web pages**, **XML**, or **LLM-generated content descriptions** into dynamic interfaces.
+- Treating native windows (including Chromium browser windows, WinForms, MFC `CView`, and others) as **tokens**.
+- Dynamically composing user interfaces in a manner similar to building webpages.
+
+## Key Advantage
+- ✅ No modifications to original code are required.
+- ✅ No recompilation is necessary.
+- ✅ Your app instantly becomes a **super composite UI generator**.
+
 # Project Vision: Super Web Content Ecosystem for Native Desktop Applications
 
 ## 🎯 Objective
