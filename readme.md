@@ -3,7 +3,7 @@
 # How It Works: Enabling God Mode
 
 ## Installation & Setup
-1. After installing [**Creator**](https://github.com/AIGCEra/AIGCSDK/releases/tag/v120), you receive a lightweight 180KB application launcher named `proxy.exe`.
+1. After installing [**Creator**](https://github.com/AIGCEra/Creator/releases/tag/FirstRelease), you receive a lightweight 180KB application launcher named `proxy.exe`.
 2. If your desktop application is named `app.exe`, copy `proxy.exe` into the same directory.
 3. Rename `proxy.exe` to `appProxy.exe`.
 
