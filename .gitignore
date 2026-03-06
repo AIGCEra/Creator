@@ -12,3 +12,6 @@
 /src/CosmosPro/x64
 /src/MFCAppProxyEx/x64
 /src/WinAppProxy/x64
+/src/.vs/Creator/FileContentIndex
+/src/.vs/Creator/v17
+/.gitignore
