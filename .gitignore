@@ -1,0 +1,9 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/src/UniversePro/Debug
+/src/UniversePro/Release
+/src/UniversePro/x64
+/.vs
+/src/UniversePro/.vs/UniversePro
