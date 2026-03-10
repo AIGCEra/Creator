@@ -3184,6 +3184,13 @@ int CSpaceTelescope::LoadCLR()
 		return 0;
 
 	CString strCosmosPath = m_strAppPath + _T("cosmos.dll");
+	if (::PathFileExists(strCosmosPath) == false)
+	{
+		CString strPath2 = m_strWebRTPath + _T("cosmos.dll");
+		if (::PathFileExists(strPath2)) {
+			CopyFile(strPath2, strCosmosPath, true);
+		}
+	}
 
 	if (theApp.m_strCosmosVer == _T("") && ::PathFileExists(strCosmosPath))
 	{
