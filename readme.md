@@ -1,9 +1,9 @@
-# The Creator Browser Wakes “God Mode” for your desktop application app.exe.
+# The Creator Browser Wakes “Browser Mode” for your desktop application app.exe.
 
-# How It Works: Enabling God Mode
+# How It Works: Enabling Browser Mode
 
 ## Installation & Setup
-1. After installing [**Creator**](https://github.com/AIGCEra/Creator/releases/tag/FirstRelease), you receive a lightweight 180KB application launcher named `proxy.exe`(C:\Program Files\Tangram\AIGCBrowser\proxy.exe).
+1. After installing [**Creator**](https://github.com/AIGCEra/Creator/releases/tag/FirstRelease), you receive a lightweight 180KB application launcher named `proxy.exe`(C:\Program Files\Tangram\Creator\proxy.exe).
 2. If your desktop application is named `app.exe`, copy `Loader.exe` into the same directory.
 3. Rename `proxy.exe` to `appLoader.exe`.
 
