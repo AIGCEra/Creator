@@ -4,19 +4,19 @@
 
 ## Installation & Setup
 1. After installing [**Creator**](https://github.com/AIGCEra/Creator/releases/tag/FirstRelease), you receive a lightweight 180KB application launcher named `proxy.exe`(C:\Program Files\Tangram\AIGCBrowser\proxy.exe).
-2. If your desktop application is named `app.exe`, copy `proxy.exe` into the same directory.
-3. Rename `proxy.exe` to `appProxy.exe`.
+2. If your desktop application is named `app.exe`, copy `Loader.exe` into the same directory.
+3. Rename `proxy.exe` to `appLoader.exe`.
 
 ## Launch Modes
 - **Normal Mode**: Launch your original `app.exe` as usual.
-- **God Mode**: Launch `appProxy.exe` to enable enhanced capabilities.
+- **Browser Mode**: Launch `appLoader.exe` to enable enhanced capabilities.
 
 ## Behind the Scenes
 When launched in God Mode:
-- `appProxy.exe` starts `app.exe` as the **Browser Process** of the Creator Browser.
-- `appProxy.exe` exits immediately and plays no further role.
+- `appLoader.exe` starts `app.exe` as the **Browser Process** of the Creator Browser.
+- `appLoadery.exe` exits immediately and plays no further role.
 
-## What Happens in God Mode?
+## What Happens in Browser Mode?
 Your application transforms into an **application content ecosystem interpreter** capable of:
 - Translating **web pages**, **XML**, or **LLM-generated content descriptions** into dynamic interfaces.
 - Treating native windows (including Chromium browser windows, WinForms, MFC `CView`, and others) as **tokens**.
@@ -78,10 +78,10 @@ What if we could transcend these limitations? Imagine enabling such applications
 
 This vision aims to transform static desktop applications into flexible, composable environments that support web-style dynamism and AI-powered customization — all without requiring source code access or recompilation.
 
-After installing Creator, you get a tiny 180KB application launcher proxy.exe.
-If your desktop app is app.exe, simply copy proxy.exe into the same folder as app.exe and rename it appProxy.exe.
+After installing Creator, you get a tiny 6.5KB(EV Signed Size:20.1KB) application launcher Loader.exe.
+If your desktop app is app.exe, simply copy Loader.exe into the same folder as app.exe and rename it apLoader.exe.
 
-Launch app.exe for normal mode; launch appProxy.exe to enter God Mode.
+Launch app.exe for normal mode; launch appLoader.exe to enter God Mode.
 proxy.exe launches app.exe as the Creator Browser’s Browser Process, then exits immediately, playing no further role.
 In God Mode, your application becomes an application content ecosystem interpreter:
 It can transform web pages, XML, or LLM content descriptions into dynamic interfaces.
