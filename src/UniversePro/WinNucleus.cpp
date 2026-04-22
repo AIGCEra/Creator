@@ -1570,12 +1570,12 @@ LRESULT CCloudMDIFrame::OnWebRTMsg(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL
 					}
 					if (!m_pMDINucleus->m_bTabbedMDIClient && m_mapMDIChild.size() == 1)
 					{
-						auto t = create_task([this]()
-							{
-								Sleep(1000);
-								::PostMessage(m_hMDIClient, WM_MDICASCADE, MDITILE_SKIPDISABLED, 0);
-								return 1;
-							});
+						::PostMessage(m_hMDIClient, WM_MDICASCADE, MDITILE_SKIPDISABLED, 0);
+						//auto t = create_task([this]()
+						//	{
+						//		Sleep(1000);
+						//		return 1;
+						//	});
 					}
 				}
 			}

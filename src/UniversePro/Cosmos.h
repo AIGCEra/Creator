@@ -558,5 +558,6 @@ private:
 		}
 	};
 	bool GetEnableHardwareAcceleration() { return m_bCommercialEdition; }
+	bool ProcessMsg(MSG msg);
 #endif
 };

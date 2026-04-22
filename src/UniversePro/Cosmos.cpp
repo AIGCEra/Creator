@@ -2857,6 +2857,11 @@ CString CSpaceTelescope::GetTextResource(CString strFile, int Index, CString str
 	return text.c_str();
 }
 
+bool CSpaceTelescope::ProcessMsg(MSG msg) 
+{ 
+	return false; 
+}
+
 bool g_bInit = false;
 void CSpaceTelescope::BrowserAppStart()
 {
@@ -3184,6 +3189,13 @@ int CSpaceTelescope::LoadCLR()
 		return 0;
 
 	CString strCosmosPath = m_strAppPath + _T("cosmos.dll");
+	if (::PathFileExists(strCosmosPath) == false)
+	{
+		CString strPath2 = m_strWebRTPath + _T("cosmos.dll");
+		if (::PathFileExists(strPath2)) {
+			CopyFile(strPath2, strCosmosPath, true);
+		}
+	}
 
 	if (theApp.m_strCosmosVer == _T("") && ::PathFileExists(strCosmosPath))
 	{
@@ -6835,14 +6847,12 @@ CString CSpaceTelescope::GetProcessPath(const char* _ver, CString process_type)
 			CString strPath = m_szBuffer;
 			int nPos = strPath.ReverseFind('\\');
 			CString strBase = strPath.Left(nPos + 1);
-			m_strSubProcessPath = strBase + m_strBrowserVer + _T("\\AICopilot.exe");
+			m_strSubProcessPath = strBase + _T("Creator.exe");
 			if (!::PathFileExists(m_strSubProcessPath))
 			{
-				m_strSubProcessPath = strBase + _T("AICopilot.exe");
+				m_strSubProcessPath = strBase + m_strBrowserVer + _T("\\Creator.exe");
 				if (!::PathFileExists(m_strSubProcessPath)) {
-					m_strSubProcessPath = strBase + m_strWebRTVer + _T("\\AICopilot.exe");
-					if (!::PathFileExists(m_strSubProcessPath))
-						m_strSubProcessPath = _T("");
+					m_strSubProcessPath = _T("");
 				}
 			}
 			//if (!m_bOldVerFilesRemoved) {
