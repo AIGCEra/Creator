@@ -17726,48 +17726,65 @@ void RenderFrameHostImpl::SendCosmosMessage(CommonUniverse::IPCSession* var) {
 }
 
 void RenderFrameHostImpl::SendCosmosMessage(CommonUniverse::IPCMsg* pMsg) {
-  if (pMsg->m_strId.CompareNoCase(_T("OPEN_URL")) == 0) {
-    OpenURL(pMsg->m_strParam1, pMsg->m_strParam2);
-  } else if (pMsg->m_strId.CompareNoCase(_T("ADD_URL")) == 0 ||
-             pMsg->m_strId.CompareNoCase(_T("OPEN_MainWindowURLs")) == 0) {
-    USES_CONVERSION;
-    CString strURLs = pMsg->m_strParam1;
-    WebContents* pContents = content::WebContents::FromRenderFrameHost(this);
-    if (pContents == nullptr) {
-      return;
+    if (pMsg->m_strId.CompareNoCase(_T("OPEN_URL")) == 0) {
+        OpenURL(pMsg->m_strParam1, pMsg->m_strParam2);
     }
-    WindowOpenDisposition nDisposition =
-        (WindowOpenDisposition)_wtoi(pMsg->m_strParam2);
-    int nPos = strURLs.Find(_T("|"));
-    if (nPos == -1) {
-      pContents->OpenURL(
-          content::OpenURLParams(
-              GURL(T2A(strURLs.GetBuffer())), content::Referrer(), nDisposition,
-              ui::PAGE_TRANSITION_LINK, false /* is_renderer_initiated */),
-          {});
-      strURLs.ReleaseBuffer();
+    else if (pMsg->m_strId.CompareNoCase(_T("ADD_URL")) == 0 ||
+        pMsg->m_strId.CompareNoCase(_T("OPEN_MainWindowURLs")) == 0) {
+        USES_CONVERSION;
+        CString strURLs = pMsg->m_strParam1;
+        WebContents* pContents = content::WebContents::FromRenderFrameHost(this);
+        if (pContents == nullptr) {
+            return;
+        }
+        WindowOpenDisposition nDisposition =
+            (WindowOpenDisposition)_wtoi(pMsg->m_strParam2);
+        int nPos = strURLs.Find(_T("|"));
+        if (nPos == -1) {
+            if (::PathFileExists(strURLs)) {
+                std::string url = PathToFileUrl(LPCTSTR(strURLs));
+                strURLs = A2T(url.c_str());
+            }
+            pContents->OpenURL(
+                content::OpenURLParams(
+                    GURL(T2A(strURLs.GetBuffer())), content::Referrer(), nDisposition,
+                    ui::PAGE_TRANSITION_LINK, false /* is_renderer_initiated */),
+                {});
+            strURLs.ReleaseBuffer();
+        }
+        while (nPos != -1) {
+            CString strUrl = strURLs.Left(nPos);
+            if (::PathFileExists(strUrl)) {
+                std::string url = PathToFileUrl(LPCTSTR(strUrl));
+                strUrl = A2T(url.c_str());
+            }
+            pContents->OpenURL(
+                content::OpenURLParams(
+                    GURL(T2A(strUrl.GetBuffer())), content::Referrer(), nDisposition,
+                    ui::PAGE_TRANSITION_LINK, false /* is_renderer_initiated */),
+                {});
+            strUrl.ReleaseBuffer();
+            strURLs = strURLs.Mid(nPos + 1);
+            nPos = strURLs.Find(_T("|"));
+            if (nPos == -1) {
+                std::string url = "";
+                if (::PathFileExists(strURLs)) {
+                    url = PathToFileUrl(LPCTSTR(strURLs));
+                    //strURLs = A2T(url.c_str());
+                }
+                else {
+                    url = T2A(strURLs);
+                }
+                pContents->OpenURL(
+                    content::OpenURLParams(GURL(url),
+                        content::Referrer(), nDisposition,
+                        ui::PAGE_TRANSITION_LINK,
+                        false /* is_renderer_initiated */),
+                    {});
+                //strURLs.ReleaseBuffer();
+            }
+        }
     }
-    while (nPos != -1) {
-      CString strUrl = strURLs.Left(nPos);
-      pContents->OpenURL(
-          content::OpenURLParams(
-              GURL(T2A(strUrl.GetBuffer())), content::Referrer(), nDisposition,
-              ui::PAGE_TRANSITION_LINK, false /* is_renderer_initiated */),
-          {});
-      strUrl.ReleaseBuffer();
-      strURLs = strURLs.Mid(nPos + 1);
-      nPos = strURLs.Find(_T("|"));
-      if (nPos == -1) {
-        pContents->OpenURL(
-            content::OpenURLParams(GURL(T2A(strURLs.GetBuffer())),
-                                   content::Referrer(), nDisposition,
-                                   ui::PAGE_TRANSITION_LINK,
-                                   false /* is_renderer_initiated */),
-            {});
-        strURLs.ReleaseBuffer();
-      }
-    }
-  }
 }
 // end Add by TangramTeam
 
