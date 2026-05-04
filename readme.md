@@ -4,6 +4,8 @@
 
 Any Agent technology capable of controlling Chromium tabs (e.g., OpenClaw, QClaw, Playwright) can gain the same level of control and observability over **64-bit WinForms and MFC applications** — **without modifying a single line of the Agent's internal logic.**
 
+<img width="652" height="464" alt="image" src="https://github.com/user-attachments/assets/8891620c-18d6-4e81-834a-ecbe1bc7ec87" />
+
 ---
 
 ## 📌 Core Definition
