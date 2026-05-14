@@ -64,18 +64,18 @@
 
   // Event handler attributes
   attribute EventHandler onXobjCreated;
-  attribute EventHandler onLoadCloudForm;
-  attribute EventHandler onLoadMdiCloudForm;
+  attribute EventHandler onLoadNativeWindow;
+  attribute EventHandler onLoadNativeMdiWindow;
   attribute EventHandler onInitWebRTApp;
   attribute EventHandler onNewDocument;
   attribute EventHandler onOpenDocument;
   attribute EventHandler onCloseDocument;
   attribute EventHandler onGalaxyCreated;
-  attribute EventHandler onCloudFormClosed;
+  attribute EventHandler onNativeWindowClosed;
   attribute EventHandler onBindCLRObject;
   attribute EventHandler onMdiChildActivate;
   attribute EventHandler onMessageReceived;
-  attribute EventHandler onWebrtObjectCreated;
-  attribute EventHandler onCloudMessageForObject;
-  attribute EventHandler onWebrtMessageReceived;
+  attribute EventHandler onAgentObjectCreated;
+  attribute EventHandler onAgentMessageForObject;
+  attribute EventHandler onAgentMessageReceived;
 };

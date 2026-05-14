@@ -128,10 +128,10 @@ class CORE_EXPORT CosmosNode final : public CosmosXobj {
   void DispatchXobjEvent(Element* elem, const String& eventName);
 
   DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(MdiChildActivate, kMdichildactivate)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(LoadCloudForm, kLoadcloudform)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(CloudMessageForXobj,
-                                          kCloudmessageforxobj)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(CloudFormClosed, kCloudformclosed)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(LoadNativeWindow, kLoadnativewindow)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(AgentMessageForXobj,
+                                          kAgentmessageforxobj)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(NativeWindowClosed, kNativewindowclosed)
 
   CosmosNode();
   CosmosNode(const String& strNodeXml);

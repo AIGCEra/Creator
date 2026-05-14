@@ -496,7 +496,7 @@ void CosmosNode::DispatchXobjEvent(Element* e, const String& eventName) {
                 String msgID = e->GetIdAttribute() + "_" + eventName;
                 xobjfortarget->setMsgID(msgID);
                 xobjfortarget->DispatchEvent(*blink::CosmosEvent::Create(
-                    blink::webrt_event_type_names::kCloudmessageforxobj,
+                    blink::webrt_event_type_names::kAgentmessageforxobj,
                     xobjfortarget));
                 xobjfortarget->setMsgID(msgID);
                 xobjfortarget->setStr("eventdata", elem->outerHTML());
@@ -521,7 +521,7 @@ void CosmosNode::sendMessageToXobj(CosmosXobj* msg) {
       if (it != pWebRT->m_mapWebRTNode.end()) {
         grid = it->value.Get();
         grid->DispatchEvent(*blink::CosmosEvent::Create(
-            blink::webrt_event_type_names::kCloudmessageforxobj, msg));
+            blink::webrt_event_type_names::kAgentmessageforxobj, msg));
       }
     }
   }
@@ -529,7 +529,7 @@ void CosmosNode::sendMessageToXobj(CosmosXobj* msg) {
 
 void CosmosNode::sendMessageToNode(CosmosNode* grid) {
   grid->DispatchEvent(*blink::CosmosEvent::Create(
-      blink::webrt_event_type_names::kCloudmessageforxobj, grid));
+      blink::webrt_event_type_names::kAgentmessageforxobj, grid));
 }
 
 void CosmosNode::setControlVal(const String& CtrlID,

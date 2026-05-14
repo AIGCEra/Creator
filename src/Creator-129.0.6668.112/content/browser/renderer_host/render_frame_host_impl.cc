@@ -348,6 +348,8 @@ BASE_FEATURE(kDoNotEvictOnAXLocationChange,
 
 #if defined(OS_WIN)
 // begin Add by TangramTeam
+#include <iomanip>
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/webui_url_constants.h"
 #include "content/browser/renderer_host/render_widget_host_view_aura.h"
@@ -462,6 +464,64 @@ using TokenFrameMap = std::unordered_map<blink::LocalFrameToken,
                                          blink::LocalFrameToken::Hasher>;
 base::LazyInstance<TokenFrameMap>::Leaky g_token_frame_map =
     LAZY_INSTANCE_INITIALIZER;
+
+// add by tangram team
+std::vector<char> WideToUTF8(const std::wstring& wstr) {
+    if (wstr.empty()) {
+        return {};
+    }
+    int len = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0,
+        nullptr, nullptr);
+    std::vector<char> utf8(len);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, utf8.data(), len, nullptr,
+        nullptr);
+    return utf8;
+}
+
+std::string PercentEncodeByte(unsigned char c) {
+    std::ostringstream oss;
+    oss << '%' << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
+        << (int)c;
+    return oss.str();
+}
+
+std::string PathToFileUrl(const std::wstring& localPath) {
+    std::wstring path = localPath;
+
+    for (auto& ch : path) {
+        if (ch == L'\\') {
+            ch = L'/';
+        }
+    }
+
+    std::wstring urlPath;
+    if (path.length() >= 2 && path[1] == L':') {
+        urlPath = L"/" + path;
+    }
+    else {
+        urlPath = path;
+    }
+
+    std::vector<char> utf8Path = WideToUTF8(urlPath);
+    std::string encodedUrl;
+
+    encodedUrl = "file://";
+
+    for (size_t i = 0; i < utf8Path.size() - 1; ++i) {
+        unsigned char c = static_cast<unsigned char>(utf8Path[i]);
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+            (c >= '0' && c <= '9') || c == '/' || c == ':' || c == '.' ||
+            c == '-' || c == '_' || c == '~') {
+            encodedUrl += c;
+        }
+        else {
+            encodedUrl += PercentEncodeByte(c);
+        }
+    }
+
+    return encodedUrl;
+}
+// end by tangram team
 
 BackForwardCacheMetrics::NotRestoredReason
 RendererEvictionReasonToNotRestoredReason(

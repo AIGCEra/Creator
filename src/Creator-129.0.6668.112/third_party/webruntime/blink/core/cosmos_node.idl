@@ -42,7 +42,7 @@
   [Replaceable] readonly attribute CosmosXobj parentForm;
 
   // Event handler attributes
-  attribute EventHandler onCloudFormClosed;
+  attribute EventHandler onNativeWindowClosed;
   attribute EventHandler onMdiChildActivate;
-  attribute EventHandler onCloudMessageForXobj;
+  attribute EventHandler onAgentMessageForXobj;
 };

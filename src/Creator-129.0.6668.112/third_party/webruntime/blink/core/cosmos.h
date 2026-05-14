@@ -113,19 +113,19 @@ class CORE_EXPORT Cosmos final : public CosmosXobj,
   DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(NewDocument, kNewdocument)
   DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(OpenDocument, kOpendocument)
   DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(CloseDocument, kClosedocument)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(WebrtMessageReceived,
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(AgentMessageReceived,
                                           kWebrtmessage)
   DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(MdiChildActivate, kMdichildactivate)
   DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(XobjCreated, kXobjcreated)
   DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(GalaxyCreated, kCosmosgalaxycreated)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(LoadCloudForm, kLoadcloudform)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(LoadMdiCloudForm, kLoadmdicloudform)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(CloudFormClosed, kCloudformclosed)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(WebrtObjectCreated,
-                                          kWebrtobjectcreated)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(LoadNativeWindow, kLoadnativewindow)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(LoadNativeMdiWindow, kLoadnativemdiwindow)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(NativeWindowClosed, kNativewindowclosed)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(AgentObjectCreated,
+                                          kAgentobjectcreated)
   DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(BindCLRObject, kBindclrobject)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(CloudMessageForObject,
-                                          kCloudmessageforobject)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(AgentMessageForObject,
+                                          kAgentmessageforobject)
 
   String url();
   CosmosXobj* getNamedItem(const AtomicString&) const;

@@ -587,17 +587,17 @@ CosmosWinform* Cosmos::CreateForm(int64_t handle, CosmosXobj* obj) {
   switch (nFormType) {
     case 0:
       DispatchEvent(*blink::CosmosEvent::Create(
-          blink::webrt_event_type_names::kLoadcloudform, obj));
+          blink::webrt_event_type_names::kLoadnativewindow, obj));
       break;
     case 1:
       DispatchEvent(*blink::CosmosEvent::Create(
-          blink::webrt_event_type_names::kLoadmdicloudform, obj));
+          blink::webrt_event_type_names::kLoadnativemdiwindow, obj));
       break;
     case 2: {
       CosmosWinform* parentform = form->mdiParent();
       if (parentform) {
         parentform->DispatchEvent(*blink::CosmosEvent::Create(
-            blink::webrt_event_type_names::kLoadmdichildcloudform, obj));
+            blink::webrt_event_type_names::kLoadmdichildnativewindow, obj));
         // form->DispatchEvent(*blink::CosmosEvent::Create(blink::event_type_names::kMdichildactivate,
         // obj));
         // parentform->DispatchEvent(*blink::CosmosEvent::Create(blink::event_type_names::kMdichildactivate,
@@ -790,7 +790,7 @@ void Cosmos::OnMessage(Element* e, const String& eventName) {
           String strMsgID = e->GetIdAttribute() + "_" + eventName;
           xobjfortarget->setMsgID(strMsgID);
           xobjfortarget->DispatchEvent(*blink::CosmosEvent::Create(
-              blink::webrt_event_type_names::kCloudmessageforxobj,
+              blink::webrt_event_type_names::kAgentmessageforxobj,
               xobjfortarget));
         }
       }
@@ -836,7 +836,7 @@ void Cosmos::OnMessage(Element* e, CosmosXobj* msg, const String& eventName) {
           }
           xobjfortarget->setMsgID(strMsgID);
           xobjfortarget->DispatchEvent(*blink::CosmosEvent::Create(
-              blink::webrt_event_type_names::kCloudmessageforxobj,
+              blink::webrt_event_type_names::kAgentmessageforxobj,
               xobjfortarget));
         }
       }
@@ -915,7 +915,7 @@ void Cosmos::DispatchXobjEvent(CosmosXobj* xObj,
                 xObj->form()->setSender(xObj);
                 bFormMsgProcessed = true;
                 xObj->form()->DispatchEvent(*blink::CosmosEvent::Create(
-                    blink::webrt_event_type_names::kCloudmessageforcloudform,
+                    blink::webrt_event_type_names::kAgentmessagefornativewindow,
                     xObj));
               }
             }
@@ -935,9 +935,9 @@ void Cosmos::DispatchXobjEvent(CosmosXobj* xObj,
           xobjfortarget->setMsgID(ctrlName_ + "_" + eventName);
           xobjfortarget->setSender(xObj);
           // CosmosEvent* pEvent = blink::CosmosEvent::Create(
-          //    blink::event_type_names::kCloudmessageforxobj, xObj);
+          //    blink::event_type_names::kAgentmessageforxobj, xObj);
           CosmosEvent* pEvent = blink::CosmosEvent::Create(
-              blink::webrt_event_type_names::kCloudmessageforxobj,
+              blink::webrt_event_type_names::kAgentmessageforxobj,
               xobjfortarget);
           xobjfortarget->DispatchEvent(*pEvent);
           xobjfortarget->setMsgID(ctrlName_ + "_" + eventName);
@@ -958,7 +958,7 @@ void Cosmos::DispatchXobjEvent(CosmosXobj* xObj,
     }
     xObj->setSender(xObj);
     xObj->DispatchEvent(*blink::CosmosEvent::Create(
-        blink::webrt_event_type_names::kCloudmessageforcloudform, xObj));
+        blink::webrt_event_type_names::kAgentmessagefornativewindow, xObj));
   } else if (xObj->grid() && !bXobjMsgProcessed) {
     if (xObj->eventElem_ != nullptr) {
       HTMLCollection* eventObjlist =
@@ -969,7 +969,7 @@ void Cosmos::DispatchXobjEvent(CosmosXobj* xObj,
     }
     xObj->setSender(xObj);
     xObj->DispatchEvent(*blink::CosmosEvent::Create(
-        blink::webrt_event_type_names::kCloudmessageforxobj, xObj));
+        blink::webrt_event_type_names::kAgentmessageforxobj, xObj));
   }
 }
 
@@ -977,9 +977,9 @@ void Cosmos::ProcessMessage(CosmosXobj* xobj) {
   long isObj = xobj->getLong("isobject");
   if (isObj) {
     xobj->DispatchEvent(*blink::CosmosEvent::Create(
-        blink::webrt_event_type_names::kCloudmessageforobject, xobj));
+        blink::webrt_event_type_names::kAgentmessageforobject, xobj));
     DispatchEvent(*blink::CosmosEvent::Create(
-        blink::webrt_event_type_names::kCloudmessageforobject, xobj));
+        blink::webrt_event_type_names::kAgentmessageforobject, xobj));
     return;
   } else {
     __int64 nHandle = xobj->getInt64("formhandle");
@@ -989,7 +989,7 @@ void Cosmos::ProcessMessage(CosmosXobj* xobj) {
       if (it != m_mapWinForm.end()) {
         form = it->value.Get();
         form->DispatchEvent(*blink::CosmosEvent::Create(
-            blink::webrt_event_type_names::kCloudmessageforcloudform, xobj));
+            blink::webrt_event_type_names::kAgentmessagefornativewindow, xobj));
         form->ProcessFormMessage(xobj->getStr("msgID"));
       }
     }
@@ -999,7 +999,7 @@ void Cosmos::ProcessMessage(CosmosXobj* xobj) {
       if (it != m_mapWebRTNode.end()) {
         CosmosNode* grid = it->value.Get();
         grid->DispatchEvent(*blink::CosmosEvent::Create(
-            blink::webrt_event_type_names::kCloudmessageforxobj, xobj));
+            blink::webrt_event_type_names::kAgentmessageforxobj, xobj));
         grid->ProcessNodeMessage(xobj->getStr("msgID"));
       }
     }
@@ -1021,9 +1021,9 @@ void Cosmos::MdiChildReady(CosmosXobj* xobj) {
     if (parentmdiform && form) {
       form->isReady_ = true;
       form->DispatchEvent(*blink::CosmosEvent::Create(
-          blink::webrt_event_type_names::kMdichildcloudformready, xobj));
+          blink::webrt_event_type_names::kMdichildnativewindowready, xobj));
       parentmdiform->DispatchEvent(*blink::CosmosEvent::Create(
-          blink::webrt_event_type_names::kMdichildcloudformready, xobj));
+          blink::webrt_event_type_names::kMdichildnativewindowready, xobj));
     }
   }
 }
@@ -1058,7 +1058,7 @@ void Cosmos::CosmosObjCreated(CosmosXobj* xobj) {
       }
     }
     DispatchEvent(*blink::CosmosEvent::Create(
-        blink::webrt_event_type_names::kWebrtobjectcreated, xobj));
+        blink::webrt_event_type_names::kAgentobjectcreated, xobj));
   }
 }
 
@@ -1359,11 +1359,11 @@ CosmosNode* Cosmos::createCosmosWinform(CosmosXobj* xobj) {
       switch (nFormType) {
         case 0:
           DispatchEvent(*blink::CosmosEvent::Create(
-              blink::webrt_event_type_names::kLoadcloudform, form));
+              blink::webrt_event_type_names::kLoadnativewindow, form));
           break;
         case 1:
           DispatchEvent(*blink::CosmosEvent::Create(
-              blink::webrt_event_type_names::kLoadmdicloudform, form));
+              blink::webrt_event_type_names::kLoadnativemdiwindow, form));
           break;
         default:
           break;
@@ -1385,7 +1385,7 @@ CosmosNode* Cosmos::createCosmosWinform(CosmosXobj* xobj) {
       if (form) {
         invokeWinFormCreatedCallback(form);
         DispatchEvent(*blink::CosmosEvent::Create(
-            blink::webrt_event_type_names::kLoadcloudform, xobj));
+            blink::webrt_event_type_names::kLoadnativewindow, xobj));
       }
     }
   } else {

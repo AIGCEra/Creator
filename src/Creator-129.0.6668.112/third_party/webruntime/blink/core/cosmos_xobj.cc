@@ -639,7 +639,7 @@ void CosmosXobj::ProcessNodeMessage(const String& msgID) {
                 xobjfortarget->setMsgID(msgID);
                 xobjfortarget->setSender(this);
                 xobjfortarget->DispatchEvent(*blink::CosmosEvent::Create(
-                    blink::webrt_event_type_names::kCloudmessageforxobj,
+                    blink::webrt_event_type_names::kAgentmessageforxobj,
                     xobjfortarget));
               }
             }
@@ -680,7 +680,7 @@ void CosmosXobj::ProcessNodeMessage(const String& msgID) {
             xobjfortarget->setMsgID(msgID);
             xobjfortarget->setSender(this);
             xobjfortarget->DispatchEvent(*blink::CosmosEvent::Create(
-                blink::webrt_event_type_names::kCloudmessageforxobj,
+                blink::webrt_event_type_names::kAgentmessageforxobj,
                 xobjfortarget));
           }
         }
@@ -732,7 +732,7 @@ void CosmosXobj::DispatchXobjEvent(Element* e, const String& eventName) {
                 xobjfortarget->setWorkElement(elem);
                 xobjfortarget->setMsgID(e->GetIdAttribute() + "_" + eventName);
                 xobjfortarget->DispatchEvent(*blink::CosmosEvent::Create(
-                    blink::webrt_event_type_names::kCloudmessageforxobj,
+                    blink::webrt_event_type_names::kAgentmessageforxobj,
                     xobjfortarget));
               }
             }
