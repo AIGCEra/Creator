@@ -6,7 +6,7 @@
 #
 # Chrome Application dir entries, sorted alphabetically.
 #
-AIGCBrowser.exe: %(ChromeDir)s\
+Creator.exe: %(ChromeDir)s\
 chrome_proxy.exe: %(ChromeDir)s\
 AIAgent.dll: %(ChromeDir)s\
 # output and WebRTData:
@@ -41,7 +41,6 @@ chrome_child.dll: %(VersionDir)s\
 chrome_elf.dll: %(VersionDir)s\
 # chrome_elf.dll.pdb: %(VersionDir)s\
 # chrome_pwa_launcher.exe: %(VersionDir)s\
-AICopilot.exe: %(VersionDir)s\
 chrome_wer.dll: %(VersionDir)s\
 d3dcompiler_47.dll: %(VersionDir)s\
 eventlog_provider.dll: %(VersionDir)s\

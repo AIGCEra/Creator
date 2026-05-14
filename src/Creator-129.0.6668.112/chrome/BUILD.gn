@@ -126,13 +126,7 @@ group("assert_no_deps") {
 # begin Add by TangramTeam
 copy("tangram_copy") {
   sources = [ "$root_out_dir/chrome.exe" ]
-  outputs = [ "$root_out_dir/AICopilot.exe" ]
-
-  public_deps = [ ":reorder_imports" ]
-}
-copy("gpt_copy") {
-  sources = [ "$root_out_dir/chrome.exe" ]
-  outputs = [ "$root_out_dir/AIGCBrowser.exe" ]
+  outputs = [ "$root_out_dir/Creator.exe" ]
 
   public_deps = [ ":reorder_imports" ]
 }
@@ -145,7 +139,6 @@ if (!is_android && !is_mac) {
       # begin Add by TangramTeam
       ":chrome_initial_component",
       ":tangram_copy",
-      ":gpt_copy",
       # end Add by TangramTeam
     ]
     data_deps = [
@@ -153,7 +146,6 @@ if (!is_android && !is_mac) {
       # begin Add by TangramTeam
       ":chrome_initial_component",
       ":tangram_copy",
-      ":gpt_copy",
       # end Add by TangramTeam
     ]
     # Do not add any more deps or data_deps to group("chrome").

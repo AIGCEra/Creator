@@ -47,9 +47,9 @@
   void BindCtrlValue(DOMString strcontrols,
                      optional ApplicationCallback callback);
 
-  attribute EventHandler onCloudMessageForObject;
-  attribute EventHandler onCloudMessageForCloudForm;
-  attribute EventHandler onCloudMessageForXobj;
+  attribute EventHandler onAgentMessageForObject;
+  attribute EventHandler onAgentMessageForNativeWindow;
+  attribute EventHandler onAgentMessageForXobj;
   attribute EventHandler onMessageReceived;
   attribute EventHandler onXobjCreated;
 };

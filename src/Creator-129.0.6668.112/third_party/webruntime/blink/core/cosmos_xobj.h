@@ -82,12 +82,12 @@ class CORE_EXPORT CosmosXobj :
     SetAttributeEventListener(webrt_event_type_names::symbol_name, listener); \
   }
 
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(CloudMessageForObject,
-                                          kCloudmessageforobject)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(CloudMessageForCloudForm,
-                                          kCloudmessageforcloudform)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(CloudMessageForXobj,
-                                          kCloudmessageforxobj)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(AgentMessageForObject,
+                                          kAgentmessageforobject)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(AgentMessageForNativeWindow,
+                                          kAgentmessagefornativewindow)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(AgentMessageForXobj,
+                                          kAgentmessageforxobj)
   DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(MessageReceived, kWebrt)
   DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(XobjCreated, kXobjcreated)
 

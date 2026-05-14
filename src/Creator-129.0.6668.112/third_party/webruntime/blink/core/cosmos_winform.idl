@@ -22,13 +22,13 @@
   [Replaceable] readonly attribute CosmosWinform activeMDIChild;
 
   // Event handler attributes
-  attribute EventHandler onLoadMdiChildCloudForm;
-  attribute EventHandler onCloudMessageForCloudForm;
+  attribute EventHandler onLoadMdiChildNativeWindow;
+  attribute EventHandler onAgentMessageForNativeWindow;
   attribute EventHandler onGalaxyCreated;
   attribute EventHandler onAllMdiChildRemoved;
-  attribute EventHandler onMdiChildCloudFormReady;
-  attribute EventHandler onMdiCloudFormReady;
-  attribute EventHandler onCloudFormReady;
-  attribute EventHandler onCloudFormClosed;
+  attribute EventHandler onMdiChildNativeWindowReady;
+  attribute EventHandler onNativeMdiWindowReady;
+  attribute EventHandler onNativeWindowReady;
+  attribute EventHandler onNativeWindowClosed;
   attribute EventHandler onMdiChildActivate;
 };

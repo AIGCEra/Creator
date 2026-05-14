@@ -7140,10 +7140,10 @@ void RenderFrameImpl::OnWebRTRendererIPCMsg(
           form = it->value;
           if (form) {
             form->DispatchEvent(*blink::CosmosEvent::Create(
-                blink::webrt_event_type_names::kCloudformclosed, var));
+                blink::webrt_event_type_names::kNativewindowclosed, var));
             pCosmos->invokeWinFormCreatedCallback(form);
             pCosmos->DispatchEvent(*blink::CosmosEvent::Create(
-                blink::webrt_event_type_names::kCloudformclosed, var));
+                blink::webrt_event_type_names::kNativewindowclosed, var));
           }
         }
       }

@@ -249,7 +249,7 @@ void CosmosWinform::DispatchXobjEvent(Element* e, const String& eventName) {
                 String msgID = e->GetIdAttribute() + "_" + eventName;
                 xobjfortarget->setMsgID(msgID);
                 xobjfortarget->DispatchEvent(*blink::CosmosEvent::Create(
-                    blink::webrt_event_type_names::kCloudmessageforxobj,
+                    blink::webrt_event_type_names::kAgentmessageforxobj,
                     xobjfortarget));
                 xobjfortarget->setMsgID(msgID);
                 xobjfortarget->setStr("eventdata", elem->outerHTML());
@@ -469,7 +469,7 @@ void CosmosWinform::ProcessFormMessage(const String& msgID) {
           xobjfortarget->setMsgID(msgID);
           xobjfortarget->setSender(this);
           xobjfortarget->DispatchEvent(*blink::CosmosEvent::Create(
-              blink::webrt_event_type_names::kCloudmessageforxobj,
+              blink::webrt_event_type_names::kAgentmessageforxobj,
               xobjfortarget));
         }
       }

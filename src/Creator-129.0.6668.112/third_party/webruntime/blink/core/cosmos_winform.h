@@ -97,15 +97,15 @@ class CORE_EXPORT CosmosWinform final : public CosmosXobj {
   DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(MdiChildActivate, kMdichildactivate)
   DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(GalaxyCreated, kCosmosgalaxycreated)
   DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(AllMdiChildRemoved, kAllmdichildremoved)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(LoadMdiChildCloudForm, kLoadmdichildcloudform)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(CloudMessageForCloudForm,
-                                  kCloudmessageforcloudform)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(MdiChildCloudFormReady,
-                                  kMdichildcloudformready)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(MdiCloudFormReady, kMdicloudformready)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(CloudFormReady, kCloudformready)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(LoadCloudForm, kLoadcloudform)
-  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(CloudFormClosed, kCloudformclosed)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(LoadMdiChildNativeWindow, kLoadmdichildnativewindow)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(AgentMessageForNativeWindow,
+                                  kAgentmessagefornativewindow)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(MdiChildNativeWindowReady,
+                                  kMdichildnativewindowready)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(NativeMdiWindowReady, kNativemdiwindowready)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(NativeWindowReady, kNativewindowready)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(LoadNativeWindow, kLoadnativewindow)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER_BYWEBRT(NativeWindowClosed, kNativewindowclosed)
 
   CosmosWinform();
   CosmosWinform(const String& strNodeXml);
