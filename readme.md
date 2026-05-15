@@ -1,4 +1,4 @@
-# Agent Awakens the Sleeping Right Hand of Desktop Applications
+# Agent: Awakens the Sleeping Right Hand of Desktop Applications
 ## LLM/AI Agent – A "Small Step" Breaking Through the Exe Black Box of Desktop Apps
 
 ## Chromium Host Mode
