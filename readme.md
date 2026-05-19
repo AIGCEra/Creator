@@ -41,32 +41,13 @@ Creator provides a 64‑bit desktop application launcher `Loader.exe`:
 
 Follow the steps below to carry out a tangible verification of "Chromium Host Mode":
 
-<table style="width: 100%;">
-  <tr>
-    <th style="width: 30%;">Step</th>
-    <th style="width: 70%;">Description</th>
-  </tr>
-  <tr>
-    <td>Step 1</td>
-    <td>Copy Loader.exe to the same directory where `appName.exe` is located. </td>
-  </tr>   
-    <tr>
-    <td>Step 2</td>
-    <td>Rename the copied file to `appNameLoader.exe`. </td>        
-    </tr>
-    <tr>    
-        <td>Step 3</td>
-    <td>Launch: The sole responsibility of `appNameLoader.exe` is to start `appName.exe` as the main (browser) process of the Creator browser, then exit without participating in further execution. This step is optional and not mandatory. The first web page `appName.app.html` will be loaded. If this page does not exist, Creator creates a default page for `appName.exe` for developer reference and modification. The Agent’s operations on this desktop application are fully equivalent, at the protocol level, to operating a standard web page tab.  </td>
-</tr>
-    <tr>
-    <td>Step 4</td>
-    <td> **Create a browser window:** after launching `appNameLoader`, repeatedly launch it again to create Chromium browser windows of the target application, supporting Chromium Tab Group and Chrome DevTools Protocol (CDP). Based on this step, `appName.exe` gains the full capability of Chrome to browse the Internet and the entire Web ecosystem. The window structure of the desktop application (e.g. DockFill controls, CView views) is mapped into a context accessible via Chrome DevTools Protocol (CDP). </td>
-    </tr>
-    <tr>
-    <td>Step 5</td>    
-    <td> **Witness "Chromium browser tabs" everywhere:** this step requires the developer to practice. Use the standard Visual Studio Wizard to generate WinForm or MFC applications and see how "Chromium Tabs" can dynamically organize "application content" inside one application… </td>      
-  </tr>
-</table>
+| Step | Description |
+|------|-------------|
+| 1 | Copy `Loader.exe` to the same directory where `appName.exe` is located. |
+| 2 | Rename the copied file to `appNameLoader.exe`. |
+| 3 | Launch: the sole responsibility of `appNameLoader.exe` is to start `appName.exe` as the main (browsing) process of the Creator browser, then exit without participating in runtime. This step is not mandatory, but optional. `appName.exe` will load the first web page `appName.app.html`. If this page does not exist, Creator will create a default page for `appName.exe` for developer reference and modification. An AI Agent's operations on this desktop application are equivalent, at the protocol level, to operating a standard web page tab. |
+| 4 | Create browser windows: after launching `appNameLoader`, repeatedly launching `appNameLoader` can create Chromium browser windows for `appName.exe`, supporting Chromium Tab Groups and the Chrome DevTools Protocol (CDP). Based on this step, `appName.exe` gains the full ability to browse the internet with Chrome, as well as the complete Web ecosystem. The desktop application's window structures (e.g., DockFill controls, CView views) are mapped into contexts accessible via the Chrome DevTools Protocol (CDP). |
+| 5 | Witness that "Chromium browser tabs" are everywhere: this step requires hands‑on practice by the developer. Use the standard Visual Studio Wizard to generate a WinForm or MFC application, and observe how "Chromium Tabs" can dynamically organize "application content" inside an application… |
 
 We suggest the following verification flow: generate a 64‑bit WinForm (with one panel control) or MFC application `appName.exe`.
 
