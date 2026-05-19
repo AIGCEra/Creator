@@ -1,4 +1,4 @@
-# Agent: Awakens the Sleeping Right Hand of Desktop Applications
+# Agent: Reconstructing Native Desktop Applications with Web
 ## LLM/AI Agent – A "Small Step" Breaking Through the Exe Black Box of Desktop Apps
 
 ## Chromium Host Mode
@@ -8,17 +8,11 @@
 1. GitHub source code: https://github.com/AIGCEra/Creator  
 2. Installer package: https://github.com/AIGCEra/Creator/releases/tag/FirstRelease
 
-The starting point of Creator is: a compiled desktop application should have two hands similar to a human being:
+For a compiled 64-bit desktop application `appName.exe`, Creator provides a **"Chromium Host Mode startup method"** – when launched in this mode, during its entire runtime lifecycle, the desktop application exhibits a complete **Chromium Browser Runtime State**:
 
-- **Left hand** – its control boundary is the native application objects already fixed at compile time, including Win32 windows, .NET controls, etc. Its capability boundary is determined the moment the source code is compiled.
-- **Right hand** – it controls the Web world composed of hundreds of standard HTML elements. Its boundary depends on the dimensions of the Web ecosystem – a dynamic, open content ecosystem not constrained by the desktop application’s original developer. Every Web developer can participate.
+`appName.exe` retains all its original designed functionality while gaining the status of a "browsing process", becoming a true Chromium browser.
 
-A long‑neglected fact: we have been using only the left hand of desktop applications, while their right hand remains idle and silent.
-
-Creator provides a brand‑new way to launch a compiled desktop application `appName.exe`, called **"Chromium Host Mode"**. It awakens the sleeping right hand of the desktop application – thus the desktop application presents a complete "two‑handed" runtime form, and for the first time becomes a true Chromium browser:
-
-- `appName.exe` acts as the **"browser process"**;
-- `Creator.exe` provides the **Renderer, GPU, Utility** sub‑processes.
+Creator's goal is: all technical capabilities supported by the Chromium desktop browser – including Agent technologies, Web technologies, etc., except for "headless mode" – can be extended into desktop applications. The first version of Creator supports 64‑bit WinForm, MFC, and WPF desktop applications; subsequent versions will gradually expand the application types as well as support 32‑bit desktop applications.
 
 As shown below, the "multi‑process browser structure" displayed when `appName.exe` runs with "both hands freed":
 <img width="572" height="511" alt="image" src="https://github.com/user-attachments/assets/68cde92c-3c79-4246-bf8d-6c3d67995346" />
@@ -69,41 +63,428 @@ This is a brand‑new software form, similar to a human "family structure", whic
 
 ## The End of Native Compilation == The Starting Point of the Web Ecosystem
 
-AI Agent technologies such as OpenClaw, Hermes, OpenAI’s Codex, and Claude Computer Use are emerging one after another, leading many to believe that the AI Agent era has arrived. However, we must face a reality: these technologies are essentially still "browser AI agent" technologies. Facing the vast majority of `.exe` files, because we have not found an effective way to let AI / LLM go deep inside the `.exe`, we are still stuck with "blind guessing". That is to say, facing the screen output of an `.exe`, these technologies can click the mouse and simulate keyboard input with increasing accuracy, but the Agent does not understand the real logic of the `.exe`. This is not a problem specific to a particular Agent, but a common problem for all Agent technologies.
+The rapid emergence of AI Agent technologies such as OpenClaw, Hermes, OpenAI's Codex, and Claude Computer Use has led many to believe that the AI Agent era has arrived. However, we must face a reality: these technologies are, in essence, still "browser‑based AI Agent" technologies. When facing the vast majority of exe files, because we have not found an effective way for AI/LLM to penetrate into the interior of an exe, we are still stuck with "blind guessing". That is, when faced with the screen output of an exe, these technologies can click the mouse and simulate keyboard input with increasing accuracy, but the Agent does not understand the true logic of the exe. This is not an issue specific to any particular Agent, but a common problem for all Agent technologies.
 
-The combination of Creator and `appName` first endows the latter with a complete Web ecosystem, multi‑tab browser windows, CDP, Chrome extension support, and other mainstream browser features. At the same time, `appName` "contributes" native HTML elements, while Creator, following Web rules, creates "Native‑Web" hybrid pages. This gives desktop applications a complete "character" – "native architecture as bones, Web content as flesh" – a new self‑replicating pattern.
+The combination of Creator and `appName` first endows the latter with a complete Web ecosystem, multi‑tab browser windows, CDP, Chrome extension support, and other mainstream browser features. At the same time, `appName` "contributes" native HTML elements, while Creator, following Web rules, gives birth to "Native‑Web" hybrid pages. This gives the desktop application a complete "character" – "native architecture as skeleton, web content as flesh". This is a new pattern that can reproduce itself.
 
-Facing the fundamental dilemma of AI Agents in the desktop application world, the perspective of "Chromium Host Mode" is as follows:
+Facing the fundamental difficulty of AI Agents in the desktop application world, the "Chromium Host Mode" perspective is as follows:
 
-1. **Traditional approach:** An Agent facing a compiled native application can only act like a blind man imitating an elephant – "looking" through screenshots, "touching" through simulated clicks. No matter how delicate its "hand" (OpenClaw) or how its "brain" (Hermes) evolves, it remains locked in the cage drawn by the original developer at design time. The pixels of the interface are a wall that the Agent cannot penetrate.
+1. **Traditional approach**: An Agent facing a compiled native application can only be like a blind person feeling an elephant – "seeing" through screenshots, "touching" through simulated clicks. No matter how sophisticated its "hands" (OpenClaw) or how its "brain" (Hermes) evolves, it is always locked in the cage drawn by the original developer at design time. The pixel is a wall the Agent cannot penetrate.
 
-2. **Chromium Host Mode:** Leveraging the power of the browser’s multi‑process architecture, the Agent is liberated. It is no longer an imitator stumbling through a pixel maze, but a true intelligent agent capable of perceiving the skeletal structure of the application.
+2. **Chromium Host Mode**: Using the power of the browser's multi‑process architecture, the Agent is freed. It is no longer an imitator groping in a pixel maze, but becomes a true intelligent entity that can perceive the skeletal structure of the application.
 
-A practical question: facing a compiled `.exe`, can AI technology break through the functional boundaries set before compilation?  
-Creator’s answer is: **AI technology can definitely break through the boundaries set by exe compilation**. This means: the generation and emergence of new functions of the `.exe` will become a reality. An `.exe` file is just the starting point of an ecosystem. This means that source code compilation of a native desktop application is no longer the end, but the origin of the software content ecosystem’s reproduction.
+A practical question: When facing a compiled exe, can AI technology break through the functional boundaries set before the exe was compiled? Creator's answer is: AI technology can definitely break through the boundaries set by exe compilation. This means: the emergence and creation of new functionalities for the exe will become reality. An exe file is merely the starting point of an ecosystem. This means that source code compilation of a native desktop application is no longer the end, but the origin of a software content ecosystem.
 
----
+Relying on Creator's Chromium Host Mode, the Agent gains the ability to "reproduce and emerge" in the desktop application world – it can dynamically explore, reorganize, and evolve each application, breaking through the functional boundaries set at design time, entering a new era where software can become "stronger with use". The way this boundary is broken is: one desktop application, infinite runtime states. For `appName.exe`, there are infinite ways to write `appName.app.html`. Different initialization pages will produce completely different runtime states of the exe. If the developer treats `appName.app.html` as the entry point for AI, LLM and other technologies, then the desktop application becomes the control endpoint for the AI Agent.
 
-## Relying on Creator’s Chromium Host Mode
+With Creator, a compiled desktop application, such as a WinForm app, can further respond to events inside a web page:
 
-The Agent gains the ability to "reproduce and emerge" within the desktop application world – it can dynamically explore, reorganize, and evolve each application, breaking through the functional boundaries set at design time, entering a new era where software can "become stronger with use". The way to break through boundaries is: one desktop application, infinite runtime states – for `appName.exe`, `appName.app.html` can be written in infinite ways; different initialization pages will produce completely different runtime states of the exe. If the developer regards `appName.app.html` as the entry point for AI, LLM and other technologies, then the desktop application is the control endpoint of the AI Agent.
+```javascript
+var form = null;
+var treegrid = null;
+var panel1_ = null;
+var Splitter_ = null;
+var CompositeGrid_Splitter_ = null;
 
-The advent of Creator allows a compiled desktop application, such as a WinForm application, to further respond to events within a web page:
+cosmos.onLoadNativeMdiWindow = function (e) {
+    form = e.form;
+    switch (form.name) {
+        case "mainForm":
+            {
+                form.onGalaxyCreated = function (e) {
+                }
+                form.onXobjCreated = function (e) {
+                    var galaxy = e.xobj.getStr("galaxy");
+                    var nucleus = e.xobj.getStr("nucleus"); //alert(galaxy);
+                    switch (galaxy) {
+                        case "nativeui":
+                            {
+                                switch (nucleus) {
+                                    case "__native_ui_default__":
+                                        {
+                                            switch (e.xobj.name) {
+                                                case "navCtrl":
+                                                    {
+                                                        e.xobj.onAgentMessageForXobj = function (e) {
+                                                            switch (this.msgID) {
+                                                                case "treeView1_OnAfterSelect":
+                                                                    break;
+                                                                case "button1_OnClick":
+                                                                    break;
+                                                                default:
+                                                                    break;
+                                                            }
+                                                        }
+                                                    }
+                                                    break;
+                                                case "webviewclient":
+                                                    {
+                                                        e.xobj.onAgentMessageForXobj = function (e) {
+                                                            switch (this.msgID) {
+                                                                case "treeView1_OnAfterSelect":
+                                                                    {
+                                                                        if (!!this.workElement) {
+                                                                            this.Observe(this.workElement.getAttribute("targetcluster"), this.workElement.outerHTML);
+                                                                            if (this.objtype == "nucleus") {
+                                                                                this.ShowWebContent("contents", this.workElement.getAttribute("content"));
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    break;
+                                                                case "DynLayoutBtn_OnClick":
+                                                                    {
+                                                                        if (!!this.workElement) {
+                                                                            this.Observe(this.workElement.getAttribute("targetcluster") + "_OnClick", this.workElement.outerHTML);
+                                                                            if (this.objtype == "nucleus") {
+                                                                                this.ShowWebContent("contents", this.workElement.getAttribute("content"));
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    break;
+                                                                case "button1_OnClick":
+                                                                    {
+                                                                        if (!!this.workElement) {
+                                                                            var xobj = this.sender;
+                                                                            this.element.setAttribute("w12", "12345678");
+                                                                            if (!!xobj) {
+                                                                                xobj.ObserveEx("key1", cosmos.getElementById("mainwindow_1"));
+                                                                                if (xobj.parent != null && xobj.parent.getLong("gridtype") == 4) {
+                                                                                    xobj.parent.Observe(0, 0, "key1", cosmos.getElementById("mainwindow_2").outerHTML);
+                                                                                }
+                                                                            } else {
+                                                                                alert(this.sender + " sender is form");
+                                                                            }
+                                                                            this.Observe(this.workElement.getAttribute("targetcluster"), this.workElement.outerHTML);
+                                                                        }
 
-<img width="858" height="686" alt="image" src="https://github.com/user-attachments/assets/76efe1a7-fdc0-4598-b03e-d01d7758337c" />
+                                                                        if (this.objtype == "nucleus") {
+                                                                            this.ShowWebContent("contents", this.workElement.getAttribute("content"));
+                                                                        }
+                                                                    }
+                                                                    break;
+                                                                case "button2_OnClick":
+                                                                    {
+                                                                        if (!!this.workElement) {
+                                                                            var xobj = this.sender;
+                                                                            var xml = cosmos.getElementById("mainwindow_2").outerHTML;
+                                                                            xobj.Observe("key2", xml);
+                                                                            if (xobj.parent != null && xobj.parent.getLong("gridtype") == 4) {
+                                                                                xobj.parent.ObserveEx(0, 0, "key2", cosmos.getElementById("mainwindow_1"));
+                                                                            }
+                                                                            this.ObserveEx(this.workElement.getAttribute("targetcluster"), this.workElement);
+                                                                            if (this.objtype == "nucleus") {
+                                                                                this.ShowWebContent("contents", this.workElement.getAttribute("content"));
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    break;
+                                                            }
+                                                        }
+                                                    }
+                                                    break;
+                                            }
+                                        }
+                                        break;
+                                }
+                            }
+                            break;
+                        case "panel1":
+                            {
+                                panel1_ = e.galaxy;
+                                switch (nucleus) {
+                                    case "default":
+                                        {
+                                            switch (e.xobj.name) {
+                                                case "Sunny_ntpctrl":
+                                                    {
+                                                        e.xobj.onAgentMessageForXobj = function (e) {
+                                                            switch (this.msgID) {
+                                                                case "button1_OnClick":
+                                                                    {
+                                                                        alert(this.docFragment.firstChild.outerHTML);
+                                                                    }
+                                                                    break;
+                                                            }
+                                                        }
+                                                    }
+                                                    break;
+                                                case "Splitter1":
+                                                    {
+                                                        Splitter_ = e.grid;
+                                                    }
+                                                    break;
+                                            }
+                                        }
+                                        break;
+                                }
+                            }
+                            break;
+                        case "mainclient@__native_ui_default__@default_frame":
+                            {
+                                switch (nucleus) {
+                                    case "startup":
+                                        break;
+                                    case "compositegrid":
+                                        {
+                                            switch (e.xobj.name) {
+                                                case "CompositeGrid_Splitter":
+                                                    CompositeGrid_Splitter_ = e.grid;
+                                                    break;
+                                            }
+                                        }
+                                        break;
+                                }
+                            }
+                            break;
+                    }
+                };
+            }
+            break;
+        case "create_form_1":
+            {
+                form.onAgentMessageForNativeWindow = function (e) {
+                    switch (e.msgID) {
+                        case "button1_OnClick":
+                            {
+                                alert("您好\n" + e.form.workElement.outerHTML + "****\n" + e.form.getStr("textBox1"));
+                            }
+                            break;
+                    }
+                }
+            }
+            break;
+        case "create_form_2":
+            {
+                //alert(form);
+            }
+            break;
+    }
+};
+
+
+```
 
 
 In the JavaScript callback shown below, after pressing the "button3", the web page not only creates a WinForm window, but also binds event callbacks to the newly created WinForm window:
 
-<img width="858" height="326" alt="image" src="https://github.com/user-attachments/assets/1bd7af89-2ad2-4e1f-a2b5-a8720ca9f6d0" />
+```javascript
+cosmos.onLoadNativeWindow = function (e) {
+    form = e.form;
+    switch (form.name) {
+        case "mainForm":
+            {
+                form.addEventListener("button3", "OnClick", function (e) {
+                    /*
+                        Dynamically creating WinForm objects in web pages is one of the
+                        important web extension technologies provided by Creator Browser, the
+                        way to extend applications is similar to Visual Basic for Application
+                        in MS Office, at this time, JavaScript is similar to VBA macro language.
+                    */
+                    var xform = cosmos.createWinForm(cosmos.getElementById("create_form_1"),
+                        0,
+                        function (formcreated) {
+                            formcreated.addEventListener("button1", "OnClick", function (formobj) {
+                                formobj.setStr("textBox1", "fill textbox by javascript: " + formobj.handle);
+                            });
+                            formcreated.BindCtrlValue("textBox1", function (e) {
+                                alert("hi" + "  --  " + e.getStr("textBox1"));
+                            });
+                        });
+                });
+                /*
+                 ClouldMessage is an important mode of interaction between Web code and
+                 native code. by providing such a message mechanism, Creator Browser establishes
+                 a complementary solution between local code and Web code.
+                */
+                form.onAgentMessageForNativeWindow = function (e) {
+                    switch (this.msgID) {
+                        case "button1_OnClick":
+                            alert(this.workElement.children[0].outerHTML);
+                            this.Observe("panel1", this.workElement.children[0].tagName, this.workElement.children[0].outerHTML);
+                            cosmos.openUrl("host:webpage/WebApp1.html", 100);
+                            break;
+                        case "button2_OnClick":
+                            alert(this.workElement.children[0].outerHTML);
+                            this.Observe("panel1", this.workElement.children[0].tagName, this.workElement.children[0].outerHTML);
+                            cosmos.openUrl("host:webpage/SubWebApp1.html", 2);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                form.onXobjCreated = function (e) {
+                    var galaxy = e.xobj.getStr("galaxy");
+                    var nucleus = e.xobj.getStr("nucleus");
+                    switch (galaxy) {
+                        case "panel1":
+                            {
+                                switch (nucleus) {
+                                    case "default":
+                                        {
+                                            switch (e.xobj.name) {
+                                                case "SunnyCtrl_UserControl2":
+                                                    {
+                                                        /*
+                                                         If the native object corresponding to "xobj"
+                                                         is not a WinForm object, processing the message
+                                                         from the corresponding native object here:
+                                                        */
+                                                        e.xobj.onAgentMessageForXobj = function (e) {
+                                                            switch (this.msgID) {
+                                                                case "button1_OnClick":
+                                                                    this.Observe("panel1", this.workElement.children[0].tagName, this.workElement.children[0].outerHTML);
+                                                                    break;
+                                                                default:
+                                                                    break;
+                                                            }
+                                                        }
+                                                    }
+                                                    break;
+                                            }
+                                        }
+                                        break;
+                                }
+                            }
+                            break;
+                    }
+                };
+            }
+            break;
+        case "create_form_1":
+            {
+                form.onAgentMessageForNativeWindow = function (e) {
+                    switch (e.msgID) {
+                        case "button1_OnClick":
+                            alert(this.workElement.children[0].tagName);
+                            this.Observe("mainpanel", this.workElement.children[0].tagName, this.workElement.children[0].outerHTML);
+                            cosmos.Observe(this.workElement.children[1].tagName, this.workElement.children[1].outerHTML);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                /*
+                 Creator Browser believes that the design of each WinForm object includes
+                 two stages, one is the design stage of the native client, where the
+                 role of the form designer is decisive, after the native code is compiled,
+                 the structural design of WinForm objects will enter the second stage in
+                 the web page, based on the description of WebDOM, the native structure
+                 of WinForm will undergo huge runtime changes, each new UI element added
+                 according to the Web description in WinForm will fire the event "onXobjCreated".
+                */
+                form.onXobjCreated = function (e) {
+                    var galaxy = e.xobj.getStr("galaxy");
+                    var nucleus = e.xobj.getStr("nucleus");
+                    switch (galaxy) {
+                        case "mainpanel":
+                            {
+                                switch (nucleus) {
+                                    case "default":
+                                        {
+                                            switch (e.xobj.name) {
+                                                case "sunnyForms2_Form4":
+                                                    {
+                                                        e.xobj.BindCtrlValue("textBox1", function (e) {
+                                                            alert("BindCtrlValue, value was modified:" + e.getStr("textBox1"));
+                                                        });
+                                                        /*
+                                                         If the native object corresponding to "xobj" is a WinForm object,
+                                                         processing the message from the corresponding WinForm object here:
+                                                        */
+                                                        e.xobj.onAgentMessageForNativeWindow = function (e) {
+                                                            switch (this.msgID) {
+                                                                case "button1_OnClick":
+                                                                    this.setStr("textBox1", "fill textbox by javascript: " + e.xobj.getStr("textBox1"))
+                                                                    this.Observe("mainpanel", this.workElement.children[0].tagName, this.workElement.children[0].outerHTML);
+                                                                    break;
+                                                                case "textBox1_TextChanged":
+                                                                    {
+                                                                        alert("textBox1_TextChanged:" + e.xobj.getStr("text"));
+                                                                    }
+                                                                    break;
+                                                                default:
+                                                                    break;
+                                                            }
+                                                        }
+                                                        /*
+                                                         If the native object corresponding to "xobj" is not a WinForm object,
+                                                         processing the message from the corresponding native object here:
+                                                        */
+                                                        e.xobj.onAgentMessageForXobj = function (e) {
+                                                            switch (this.msgID) {
+                                                                default:
+                                                                    break;
+                                                            }
+                                                        }
+                                                    }
+                                                    break;
+                                            }
+                                        }
+                                        break;
+                                }
+                            }
+                            break;
+                    }
+                };
+            }
+            break;
+    }
+};
+```
 
 ## Web Page Handling Win32 Messages
 
 At the same time, the web page can directly handle Win32 messages of the desktop application:
+```javascript
+cosmos.onAgentMessageReceived = function (e) {
+    switch (e.xobj.msgID) {
+        case "TANGRAMAPP_READY":
+            {
+            }
+            break;
+        case "TEST_MFC_MSG":
+            {
+                //alert(e.xobj.getStr("testinfo")+e.xobj.handle);
+            }
+            break;
+        case "TREECTRL_TvnSelchanged":
+            {
+                var name = e.xobj.getStr("treenodekey");
+                alert(name);
+                //alert(e.xobj.element.outerHTML);
+                alert(e.xobj.getElementById(name).outerHTML);
+                //alert(e.xobj.getElementById(name));
+                var elems = e.xobj.getElementsByTagName(name);
+                alert(elems[0].outerHTML);
+            }
+            break;
+        case "WM_COMMAND":
+            {
+                alert(e.xobj.name);
+                switch (e.xobj.getStr("CtrlClass")) {
+                    case "Button":
+                        {
+                            alert("DocType:" + e.xobj.getStr("DocTypeID"));
+                            alert("galaxy:" + e.xobj.getStr("galaxy"));
+                            alert("nucleus:" + e.xobj.getStr("nucleus"));
+                            alert(e.xobj.name);
+                            console.log("WM_COMMAND_button\n");
+                            //cosmos.sendMessage("COSMOS_CREATE_DOC", ".xxxx", "test", "33");
+                        }
+                        break;
+                    case "Edit":
+                        {
+                        }
+                        break;
+                }
+            }
+            break;
+        default:
+            break;
+    }
+}
 
-
-<img width="849" height="867" alt="image" src="https://github.com/user-attachments/assets/2ff8dc7b-a20d-4eb9-8f5d-0f8650b6ac17" />
-
+```
 
 
 The Web dimension, Native dimension, and AI dimension define the ecological dimensions that a compiled desktop application should possess. This is the decisive foundation for AI to redefine desktop applications, and also the prerequisite for "intelligence emergence". A specific runtime form of a desktop application presents these three basic dimensions, and with the help of web pages to describe a particular scenario‑based form – that is Creator’s mission.
@@ -208,6 +589,15 @@ Because after being launched by Loader, the desktop application **is itself a Ch
 
 ## Creator Security Mechanism
 
+For a specific desktop application appName.exe:
+
+The first time appNameLoader.exe is launched, one CreateRemoteThread call occurs.
+
+Subsequent launches of appNameLoader will not trigger CreateRemoteThread; instead, they will create a new browser window for appName.
+
+This means that during the entire runtime lifecycle of appName.exe, the CreateRemoteThread call occurs only once. Once we make this clear, CreateRemoteThread is safe.
+
+The currently released version of Creator is an experimental version for developer testing, so no security policy is yet provided. Subsequent versions will gradually provide graded security policies. The planned security levels are as follows:
 The currently released version of Creator is for developer evaluation purposes.  
 Subsequent versions will gradually provide hierarchical security policies. The planned security levels are:
 
