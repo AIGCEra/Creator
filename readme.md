@@ -20,7 +20,9 @@ Creator provides a **"Chromium Host Mode startup method"** for compiled 64-bit d
 
 `appName.exe` not only possesses all the design-time functionality before compilation but also gains the status of a Chromium "browsing process", becoming a true browser.
 
-Creator's goal is: besides "headless mode", desktop applications support all features of the Chromium desktop browser, such as Agent technologies, Web technologies, and internet browsing capabilities. The first version of Creator supports 64-bit WinForms, MFC, and WPF desktop applications. Subsequent versions will gradually expand to more application types and 32-bit desktop applications.
+Creator does not support headless mode. Apart from that, desktop applications gain full Chromium desktop browser capabilities, including Agent technologies, Web technologies, and internet browsing.
+
+The first version of Creator supports 64-bit WinForms, MFC, and WPF desktop applications. Subsequent versions will gradually expand to more application types and 32-bit desktop applications.
 
 As shown below, `appName.exe` running in "Chromium Host Mode" presents a "browser multi-process structure":
 <img width="572" height="511" alt="image" src="https://github.com/user-attachments/assets/68cde92c-3c79-4246-bf8d-6c3d67995346" />
