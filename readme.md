@@ -599,17 +599,16 @@ Because after being launched by Loader, the desktop application **is itself a Ch
 
 ## Creator Security Mechanism
 
-For a specific desktop application appName.exe:
+For a specific desktop application `appName.exe`:
 
-The first time appNameLoader.exe is launched, one CreateRemoteThread call occurs.
+1. The first launch of `appNameLoader.exe` will generate one `CreateRemoteThread` call.
+2. Subsequent repeated launches of `appNameLoader` will not trigger `CreateRemoteThread`, but will instead create a new browser window for `appName`.
 
-Subsequent launches of appNameLoader will not trigger CreateRemoteThread; instead, they will create a new browser window for appName.
+This means that during the entire runtime lifecycle of `appName.exe`, the `CreateRemoteThread` call occurs only once. Once we are clear about this, `CreateRemoteThread` is safe.
 
-This means that during the entire runtime lifecycle of appName.exe, the CreateRemoteThread call occurs only once. Once we make this clear, CreateRemoteThread is safe.
+In the desktop application field, `CreateRemoteThread` is a sensitive and daunting API, just like a "fruit knife" — its safety depends on its specific use. If `CreateRemoteThread` is controllable, then we have sufficient reason to consider this API safe. Just like: even though "illness enters through the mouth", we still need to "drink water and eat". In subsequent versions of Creator, we will provide an option to ensure that `CreateRemoteThread` is called only once for a specific application.
 
-The currently released version of Creator is an experimental version for developer testing, so no security policy is yet provided. Subsequent versions will gradually provide graded security policies. The planned security levels are as follows:
-The currently released version of Creator is for developer evaluation purposes.  
-Subsequent versions will gradually provide hierarchical security policies. The planned security levels are:
+The currently released version of Creator is an experimental version for developers, so no security policies are provided yet. Subsequent versions will gradually provide graded security policies. The planned security levels are as follows:
 
 | Level | Policy |
 |-------|--------|
