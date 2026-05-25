@@ -1,4 +1,4 @@
-# Agent's Small Step — CDP Controls EXE
+# Agent's Small Step — CDP Controls Desktop App EXE
 
 The prologue of Agent begins with CDP breaking through the boundaries of the browser.
 
