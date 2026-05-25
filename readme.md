@@ -1,23 +1,33 @@
-# Agent: Reconstructing Native Desktop Applications with Web
-## LLM/AI Agent – A "Small Step" Breaking Through the Exe Black Box of Desktop Apps
+# Agent's Small Step — CDP Controls EXE
 
-## Chromium Host Mode
+The prologue of Agent begins with CDP breaking through the boundaries of the browser.
+
+# Creator — A Small Gift for the Agent Era
+
+The emergence of OpenClaw has made the desktop application field realize: the era of AI Agents for application software has arrived. However, we must face an objective fact: the operable Agent technologies so far have all occurred within web browsers and their derivative software ecosystems. Facing .exe, LLMs and AI Agents are still "blindly guessing". We need to calmly answer a few questions:
+
+1. Where are the boundaries of the Chrome DevTools Protocol (CDP)?
+2. If LLMs cannot understand .exe, can the technologies we eagerly discuss, such as Harness, step out of the cradle of the browser?
+3. If desktop .exe and .dll are just "black boxes" to LLMs, what will be the boundaries of reasoning?
+4. If Agent technology cannot break through the design boundaries of .exe, does that mean "automation" will become the ceiling for Agent technology?
 
 **Creator** is an open‑source Chromium browser:
 
 1. GitHub source code: https://github.com/AIGCEra/Creator  
 2. Installer package: https://github.com/AIGCEra/Creator/releases/tag/FirstRelease
 
-For a compiled 64-bit desktop application `appName.exe`, Creator provides a **"Chromium Host Mode startup method"** – when launched in this mode, during its entire runtime lifecycle, the desktop application exhibits a complete **Chromium Browser Runtime State**:
+Creator provides a **"Chromium Host Mode startup method"** for compiled 64-bit desktop applications `appName.exe` — during the runtime lifecycle:
 
-`appName.exe` retains all its original designed functionality while gaining the status of a "browsing process", becoming a true Chromium browser.
+`appName.exe` not only possesses all the design-time functionality before compilation but also gains the status of a Chromium "browsing process", becoming a true browser.
 
-Creator's goal is: all technical capabilities supported by the Chromium desktop browser – including Agent technologies, Web technologies, etc., except for "headless mode" – can be extended into desktop applications. The first version of Creator supports 64‑bit WinForm, MFC, and WPF desktop applications; subsequent versions will gradually expand the application types as well as support 32‑bit desktop applications.
+Creator's goal is: besides "headless mode", desktop applications support all features of the Chromium desktop browser, such as Agent technologies, Web technologies, and internet browsing capabilities. The first version of Creator supports 64-bit WinForms, MFC, and WPF desktop applications. Subsequent versions will gradually expand to more application types and 32-bit desktop applications.
 
-As shown below, the "multi‑process browser structure" displayed when `appName.exe` runs with "both hands freed":
+As shown below, `appName.exe` running in "Chromium Host Mode" presents a "browser multi-process structure":
 <img width="572" height="511" alt="image" src="https://github.com/user-attachments/assets/68cde92c-3c79-4246-bf8d-6c3d67995346" />
 
 ---
+
+The achievement of Creator is: everything that happens inside a browser can now happen inside a desktop application. This means:
 
 ## Creating a Browser Window
 
