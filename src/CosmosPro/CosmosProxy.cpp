@@ -37,10 +37,12 @@
 #include <iostream>
 #include <stdlib.h>
 #include <sstream>
-
+#include <filesystem>
 using namespace Universe;
 using namespace System::Windows;
+using namespace System::Reflection;
 using namespace System::Security::Permissions;
+using namespace System::Collections::Generic;
 #pragma managed(push, off)
 CSpaceTelescope theApp;
 #pragma managed(pop)
@@ -123,6 +125,7 @@ CWebRTProxy::CWebRTProxy() : IWebRTCLRImpl()
 	AppDomain^ thisDomain = AppDomain::CurrentDomain;
 	thisDomain->ProcessExit += gcnew System::EventHandler(&OnProcessExit);
 	thisDomain->DomainUnload += gcnew System::EventHandler(&OnDomainUnload);
+	thisDomain->AssemblyResolve += gcnew System::ResolveEventHandler(&OnAssemblyResolve);
 	if (::GetModuleHandle(_T("universe.dll")) == nullptr)
 	{
 		theApp.m_bHostApp = true;
@@ -146,6 +149,8 @@ CWebRTProxy::~CWebRTProxy()
 	m_mapNucleusInfo.clear();
 	m_mapAssembly.erase(m_mapAssembly.begin(), m_mapAssembly.end());
 	m_mapAssembly.clear();
+	m_mapResolveAssembly.erase(m_mapResolveAssembly.begin(), m_mapResolveAssembly.end());
+	m_mapResolveAssembly.clear();
 	m_mapChromeWebPage.erase(m_mapChromeWebPage.begin(), m_mapChromeWebPage.end());
 	m_mapChromeWebPage.clear();
 	m_mapWpfControlWrapper.erase(m_mapWpfControlWrapper.begin(), m_mapWpfControlWrapper.end());
@@ -156,7 +161,6 @@ CWebRTProxy::~CWebRTProxy()
 	m_mapSession2Wormhole.clear();
 	m_mapForm.erase(m_mapForm.begin(), m_mapForm.end());
 	m_mapForm.clear();
-	//if (theApp.m_bHostApp == false)
 	g_pSpaceTelescopeImpl->m_pCLRProxy = nullptr;
 	OutputDebugString(_T("------------------Release CWebRTProxy ------------------------\n"));
 	CString strInfo = _T("");
@@ -193,67 +197,6 @@ void CSpaceTelescope::ProcessMsg(MSG* msg) {
 
 void CWebRTProxy::ExportCLRObjInfo(CString strPath)
 {
-}
-
-void CWebRTProxy::ExportAllCLRObjInfo(CString _strPath)
-{
-	CString strPath = _strPath;
-	strPath += _T("\\");
-	strPath.Replace(_T("\\\\"), _T("\\"));
-
-	if (::PathIsDirectory(strPath) == false)
-		return;
-	HANDLE hFind; // file handle
-	WIN32_FIND_DATA FindFileData;
-
-	hFind = FindFirstFile(strPath + _T("*.*"), &FindFileData); // find the first file
-	if (hFind == INVALID_HANDLE_VALUE)
-	{
-		return;
-	}
-
-	bool bSearch = true;
-	while (bSearch) // until we finds an entry
-	{
-		if (FindNextFile(hFind, &FindFileData))
-		{
-			if ((_tcscmp(FindFileData.cFileName, _T(".")) == 0) ||
-				(_tcscmp(FindFileData.cFileName, _T("..")) == 0))
-				continue;
-
-			// We have found a directory
-			if ((FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-			{
-				CString strPath2 = strPath + FindFileData.cFileName + _T("\\");
-				ExportAllCLRObjInfo(strPath2);
-			}
-			else
-			{
-				CString str = FindFileData.cFileName;
-				int nPos = str.ReverseFind('.');
-				if (nPos != -1)
-				{
-					CString s = str.Mid(nPos);
-					if (s.CompareNoCase(_T(".dll")) == 0)
-						ExportCLRObjInfo(strPath + FindFileData.cFileName);
-				}
-			}
-
-		}//FindNextFile
-		else
-		{
-			if (GetLastError() == ERROR_NO_MORE_FILES) // no more files there
-				bSearch = false;
-			else {
-				// some error occured, close the handle and return false
-				FindClose(hFind);
-				return;
-			}
-		}
-	}//while
-
-	FindClose(hFind); // closing file handle
-	return;
 }
 
 IDispatch* CWebRTProxy::CreateWinForm(HWND hParent, BSTR strXML)
@@ -3431,58 +3374,6 @@ void CWebRTProxy::CosmosAction(BSTR bstrXml, void* pvoid)
 			}
 			return;
 		}
-		if (strXml.CompareNoCase(_T("GetSignData")) == 0) {
-			String^ strWhiteList = Forms::Application::ExecutablePath->ToLower();
-			strWhiteList = strWhiteList->Replace(L".exe", L"whitelist.dll");
-			if (System::IO::File::Exists(strWhiteList)) {
-				String^ resourceName = L"whitelist.xml";
-				Assembly^ a = nullptr;
-				String^ strName = L"";
-				try
-				{
-					a = Assembly::LoadFile(strWhiteList);
-				}
-				catch (ArgumentNullException^)
-				{
-
-				}
-				finally
-				{
-					if (a != nullptr)
-					{
-						strName = a->FullName;
-						strName = strName->Substring(0, strName->IndexOf(","));
-					}
-				}
-
-				System::IO::Stream^ sm = nullptr;
-				try
-				{
-					sm = a->GetManifestResourceStream(strName + "." + resourceName);
-				}
-				catch (...)
-				{
-
-				}
-				finally
-				{
-					if (sm != nullptr)
-					{
-						cli::array<unsigned char, 1>^ bs = gcnew cli::array<unsigned char, 1>((int)sm->Length);
-						sm->Read(bs, 0, (int)sm->Length);
-						sm->Close();
-
-						System::Text::UTF8Encoding^ con = gcnew System::Text::UTF8Encoding();
-
-						strName = con->GetString(bs);
-						delete sm;
-						CString _strWhiteListXml = strName;
-						theApp.m_pWebRT->put_AppKeyValue(CComBSTR("whiltlist"), CComVariant(_strWhiteListXml));
-					}
-				}
-			}
-			return;
-		}
 		if (strXml.CompareNoCase(_T("startclrapp")) == 0)
 		{
 			if (m_bInitApp == false)
@@ -3961,4 +3852,89 @@ void CWebRTProxy::OnDomainUnload(System::Object^ sender, System::EventArgs^ e)
 
 void CWebRTProxy::OnProcessExit(System::Object^ sender, System::EventArgs^ e)
 {
+}
+
+Assembly^ GetLoadedAssemblyFromHMODULE(HMODULE hModule)
+{
+	// 1. 获取原生模块路径 (Unicode)
+	TCHAR m_szBuffer[MAX_PATH];
+	::GetModuleFileName(hModule, m_szBuffer, MAX_PATH);
+	CString strAmFile = m_szBuffer;
+
+	String^ targetPath = marshal_as<String^>(strAmFile);
+	try
+	{
+		// 2. 遍历当前 AppDomain 中的所有已加载程序集
+		cli::array<Assembly^>^ assemblies = AppDomain::CurrentDomain->GetAssemblies();
+		int nLength = assemblies->Length;
+		for (int i = 0; i < nLength; i++) {
+			// 排除动态生成的程序集（它们没有 Location）
+			if (String::IsNullOrEmpty(assemblies[i]->Location)) continue;
+			Assembly^ am = assemblies[i];
+			// 路径比较（忽略大小写，适配 Windows 文件系统）
+			if (String::Compare(am->Location, targetPath, StringComparison::OrdinalIgnoreCase) == 0) {
+				String^ name = am->GetName()->Name->ToLower();
+				CString strAmName = name;
+				theAppProxy.m_mapResolveAssembly[strAmName] = am;
+				return am;
+			}
+		}
+	}
+	catch (Exception^)
+	{
+	}
+
+	return nullptr; // 未找到匹配的已加载程序集
+}
+
+System::Reflection::Assembly^ CWebRTProxy::OnAssemblyResolve(System::Object^ sender, System::ResolveEventArgs^ args)
+{
+	String^ amName = (gcnew AssemblyName(args->Name))->Name->ToLower();
+	CString strAmName = amName;
+	strAmName.MakeLower();
+	Assembly^ am = nullptr;
+
+	am = Assembly::GetEntryAssembly();
+	if (am != nullptr && String::Compare(am->GetName()->Name, amName, StringComparison::OrdinalIgnoreCase) == 0) {
+		//theAppProxy.m_mapResolveAssembly[strAmName] = am;
+		return am;
+	}
+	String^ dllName = amName + ".dll";
+	if (dllName == L"cosmos.dll") {
+		Universe::WebRT^ pApp = Universe::WebRT::GetWebRT();
+		am = pApp->GetType()->Assembly;
+		//theAppProxy.m_mapResolveAssembly[strAmName] = am;
+		return am;
+	}
+	else {
+		auto it = theAppProxy.m_mapResolveAssembly.find(strAmName);
+		if (it != theAppProxy.m_mapResolveAssembly.end()) {
+			return it->second;
+		}
+		CString strAssemblyFile = _T("");
+		CString strName = dllName + _T(".dll");
+		HMODULE hModule = ::GetModuleHandle(strName);
+		if (hModule) {
+			am = GetLoadedAssemblyFromHMODULE(hModule);
+			if (am != nullptr) {
+				//theAppProxy.m_mapResolveAssembly[strAmName] = am;
+				return am;
+			}
+		}
+		if (g_pSpaceTelescopeImpl) {
+			strAssemblyFile = g_pSpaceTelescopeImpl->GetFileByName(g_pSpaceTelescopeImpl->m_strAppPath, strName);
+			if (::PathFileExists(strAssemblyFile) == false) {
+				strAssemblyFile = g_pSpaceTelescopeImpl->GetFileByName(g_pSpaceTelescopeImpl->m_strAgentPath, strName);
+			}
+		}
+		bool bVerfyEVSHASign = g_pSpaceTelescopeImpl->VerfyEVSHASign(strAssemblyFile);
+		if (bVerfyEVSHASign && ::PathFileExists(strAssemblyFile)) {
+			am = Assembly::LoadFrom(marshal_as<String^>(strAssemblyFile));
+			if (am != nullptr) {
+				theAppProxy.m_mapResolveAssembly[strAmName] = am;
+				return am;
+			}
+		}
+	}
+	return nullptr;
 }

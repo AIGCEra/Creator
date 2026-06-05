@@ -78,7 +78,6 @@ private:
 	void OnWebRTClose(CosmosCloseState state);
 	void OnObserveComplete(HWND hWnd, CString strUrl, IXobj* pRootXobj);
 	HWND InitWebRTApp();
-	CString _GetLibPathFromAssemblyQualifiedName(CString strDir, CString strLibName);
 	virtual bool EclipseAppInit();
 	virtual void IPCMsg(HWND hWnd, CString strType, CString strParam1, CString strParam2);
 	virtual void CustomizedDOMElement(HWND hWnd, CString strRuleName, CString strHTML);

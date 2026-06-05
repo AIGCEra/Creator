@@ -107,7 +107,7 @@
     <LinkIncremental>true</LinkIncremental>
     <LinkKeyFile>Commos.snk</LinkKeyFile>
     <TargetName>Cosmos</TargetName>
-    <OutDir>C:\Program Files\Tangram\AIGCBrowser</OutDir>
+    <OutDir>C:\Program Files\Tangram\Creator</OutDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <IgnoreImportLibrary>true</IgnoreImportLibrary>
@@ -121,7 +121,7 @@
     <LinkIncremental>false</LinkIncremental>
     <LinkKeyFile>Commos.snk</LinkKeyFile>
     <TargetName>Cosmos</TargetName>
-    <OutDir>..\..\..\..\testmfc</OutDir>
+    <OutDir>C:\Program Files\Tangram\Creator</OutDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <Midl>

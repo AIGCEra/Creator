@@ -349,6 +349,7 @@ BASE_FEATURE(kDoNotEvictOnAXLocationChange,
 #if defined(OS_WIN)
 // begin Add by TangramTeam
 #include <iomanip>
+
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/webui_url_constants.h"
@@ -467,59 +468,57 @@ base::LazyInstance<TokenFrameMap>::Leaky g_token_frame_map =
 
 // add by tangram team
 std::vector<char> WideToUTF8(const std::wstring& wstr) {
-    if (wstr.empty()) {
-        return {};
-    }
-    int len = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0,
-        nullptr, nullptr);
-    std::vector<char> utf8(len);
-    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, utf8.data(), len, nullptr,
-        nullptr);
-    return utf8;
+  if (wstr.empty()) {
+    return {};
+  }
+  int len = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0,
+                                nullptr, nullptr);
+  std::vector<char> utf8(len);
+  WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, utf8.data(), len, nullptr,
+                      nullptr);
+  return utf8;
 }
 
 std::string PercentEncodeByte(unsigned char c) {
-    std::ostringstream oss;
-    oss << '%' << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
-        << (int)c;
-    return oss.str();
+  std::ostringstream oss;
+  oss << '%' << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
+      << (int)c;
+  return oss.str();
 }
 
 std::string PathToFileUrl(const std::wstring& localPath) {
-    std::wstring path = localPath;
+  std::wstring path = localPath;
 
-    for (auto& ch : path) {
-        if (ch == L'\\') {
-            ch = L'/';
-        }
+  for (auto& ch : path) {
+    if (ch == L'\\') {
+      ch = L'/';
     }
+  }
 
-    std::wstring urlPath;
-    if (path.length() >= 2 && path[1] == L':') {
-        urlPath = L"/" + path;
+  std::wstring urlPath;
+  if (path.length() >= 2 && path[1] == L':') {
+    urlPath = L"/" + path;
+  } else {
+    urlPath = path;
+  }
+
+  std::vector<char> utf8Path = WideToUTF8(urlPath);
+  std::string encodedUrl;
+
+  encodedUrl = "file://";
+
+  for (size_t i = 0; i < utf8Path.size() - 1; ++i) {
+    unsigned char c = static_cast<unsigned char>(utf8Path[i]);
+    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+        (c >= '0' && c <= '9') || c == '/' || c == ':' || c == '.' ||
+        c == '-' || c == '_' || c == '~') {
+      encodedUrl += c;
+    } else {
+      encodedUrl += PercentEncodeByte(c);
     }
-    else {
-        urlPath = path;
-    }
+  }
 
-    std::vector<char> utf8Path = WideToUTF8(urlPath);
-    std::string encodedUrl;
-
-    encodedUrl = "file://";
-
-    for (size_t i = 0; i < utf8Path.size() - 1; ++i) {
-        unsigned char c = static_cast<unsigned char>(utf8Path[i]);
-        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-            (c >= '0' && c <= '9') || c == '/' || c == ':' || c == '.' ||
-            c == '-' || c == '_' || c == '~') {
-            encodedUrl += c;
-        }
-        else {
-            encodedUrl += PercentEncodeByte(c);
-        }
-    }
-
-    return encodedUrl;
+  return encodedUrl;
 }
 // end by tangram team
 
@@ -2790,9 +2789,9 @@ bool RenderFrameHostImpl::IsCrossProcessSubframe() {
 }
 
 bool RenderFrameHostImpl::RequiresProxyToParent() {
-    if (is_main_frame()) {
-        return false;
-    }
+  if (is_main_frame()) {
+    return false;
+  }
   return GetSiteInstance()->group() != parent_->GetSiteInstance()->group();
 }
 
@@ -7556,29 +7555,31 @@ void RenderFrameHostImpl::DidContainInsecureFormAction() {
 
 void RenderFrameHostImpl::MainDocumentElementAvailable(
     bool uses_temporary_zoom_level) {
-    if (!is_main_frame()) {
-        bad_message::ReceivedBadMessage(
-            GetProcess(), bad_message::RFH_INVALID_CALL_FROM_NOT_MAIN_FRAME);
-        return;
-    }
-    GetPage().set_is_main_document_element_available(true);
-    GetPage().set_uses_temporary_zoom_level(uses_temporary_zoom_level);
-    // Don't dispatch PrimaryMainDocumentElementAvailable for non-primary
-    // RenderFrameHosts. As most of the observers are interested only in taking
-    // into account and can interact with or send IPCs to only the current
-    // document in the primary main frame. Since the WebContents could be hosting
-    // more than one main frame (e.g., fenced frame, prerender pages or pending
-    // delete RFHs), return early for other cases.
-    if (!IsInPrimaryMainFrame())
-        return;
-    delegate_->PrimaryMainDocumentElementAvailable();
-    if (!uses_temporary_zoom_level)
-        return;
+  if (!is_main_frame()) {
+    bad_message::ReceivedBadMessage(
+        GetProcess(), bad_message::RFH_INVALID_CALL_FROM_NOT_MAIN_FRAME);
+    return;
+  }
+  GetPage().set_is_main_document_element_available(true);
+  GetPage().set_uses_temporary_zoom_level(uses_temporary_zoom_level);
+  // Don't dispatch PrimaryMainDocumentElementAvailable for non-primary
+  // RenderFrameHosts. As most of the observers are interested only in taking
+  // into account and can interact with or send IPCs to only the current
+  // document in the primary main frame. Since the WebContents could be hosting
+  // more than one main frame (e.g., fenced frame, prerender pages or pending
+  // delete RFHs), return early for other cases.
+  if (!IsInPrimaryMainFrame()) {
+    return;
+  }
+  delegate_->PrimaryMainDocumentElementAvailable();
+  if (!uses_temporary_zoom_level) {
+    return;
+  }
 #if !BUILDFLAG(IS_ANDROID)
-    HostZoomMapImpl* host_zoom_map =
-        static_cast<HostZoomMapImpl*>(HostZoomMap::Get(GetSiteInstance()));
-    host_zoom_map->SetTemporaryZoomLevel(GetGlobalId(),
-        host_zoom_map->GetDefaultZoomLevel());
+  HostZoomMapImpl* host_zoom_map =
+      static_cast<HostZoomMapImpl*>(HostZoomMap::Get(GetSiteInstance()));
+  host_zoom_map->SetTemporaryZoomLevel(GetGlobalId(),
+                                       host_zoom_map->GetDefaultZoomLevel());
 #endif  // !BUILDFLAG(IS_ANDROID)
 }
 
@@ -10579,8 +10580,9 @@ void RenderFrameHostImpl::HandleAXEvents(
     } else {
       // Call testing callback functions for each event to fire.
       for (auto& event : updates_and_events.events) {
-        if (static_cast<int>(event.event_type) < 0)
+        if (static_cast<int>(event.event_type) < 0) {
           continue;
+        }
 
         accessibility_testing_callback_.Run(this, event.event_type, event.id);
       }
@@ -10592,9 +10594,9 @@ void RenderFrameHostImpl::HandleAXEvents(
         is_first_accessibility_request_
             ? "Accessibility.EventProcessingTime3.First"
             : "Accessibility.EventProcessingTime3.NotFirst",
-            base::TimeTicks::Now() - accessibility_reset_start_);
-        accessibility_reset_start_ = base::TimeTicks();
-    }
+        base::TimeTicks::Now() - accessibility_reset_start_);
+    accessibility_reset_start_ = base::TimeTicks();
+  }
 }
 
 void RenderFrameHostImpl::HandleAXLocationChanges(
@@ -17799,49 +17801,51 @@ void RenderFrameHostImpl::SendCosmosMessage(CommonUniverse::IPCMsg* pMsg) {
         }
         WindowOpenDisposition nDisposition =
             (WindowOpenDisposition)_wtoi(pMsg->m_strParam2);
+        std::string url = "";
         int nPos = strURLs.Find(_T("|"));
         if (nPos == -1) {
             if (::PathFileExists(strURLs)) {
-                std::string url = PathToFileUrl(LPCTSTR(strURLs));
-                strURLs = A2T(url.c_str());
+                url = PathToFileUrl(LPCTSTR(strURLs));
+            }
+            else {
+                url = T2A(strURLs);
             }
             pContents->OpenURL(
-                content::OpenURLParams(
-                    GURL(T2A(strURLs.GetBuffer())), content::Referrer(), nDisposition,
-                    ui::PAGE_TRANSITION_LINK, false /* is_renderer_initiated */),
+                content::OpenURLParams(GURL(url), content::Referrer(), nDisposition,
+                    ui::PAGE_TRANSITION_LINK,
+                    false /* is_renderer_initiated */),
                 {});
-            strURLs.ReleaseBuffer();
         }
         while (nPos != -1) {
             CString strUrl = strURLs.Left(nPos);
             if (::PathFileExists(strUrl)) {
-                std::string url = PathToFileUrl(LPCTSTR(strUrl));
-                strUrl = A2T(url.c_str());
+                url = PathToFileUrl(LPCTSTR(strUrl));
+            }
+            else {
+                url = T2A(strUrl);
             }
             pContents->OpenURL(
-                content::OpenURLParams(
-                    GURL(T2A(strUrl.GetBuffer())), content::Referrer(), nDisposition,
-                    ui::PAGE_TRANSITION_LINK, false /* is_renderer_initiated */),
+                content::OpenURLParams(GURL(url), content::Referrer(), nDisposition,
+                    ui::PAGE_TRANSITION_LINK,
+                    false /* is_renderer_initiated */),
                 {});
-            strUrl.ReleaseBuffer();
+            // strUrl.ReleaseBuffer();
             strURLs = strURLs.Mid(nPos + 1);
             nPos = strURLs.Find(_T("|"));
             if (nPos == -1) {
-                std::string url = "";
                 if (::PathFileExists(strURLs)) {
                     url = PathToFileUrl(LPCTSTR(strURLs));
-                    //strURLs = A2T(url.c_str());
+                    // strURLs = A2T(url.c_str());
                 }
                 else {
                     url = T2A(strURLs);
                 }
                 pContents->OpenURL(
-                    content::OpenURLParams(GURL(url),
-                        content::Referrer(), nDisposition,
+                    content::OpenURLParams(GURL(url), content::Referrer(), nDisposition,
                         ui::PAGE_TRANSITION_LINK,
                         false /* is_renderer_initiated */),
                     {});
-                //strURLs.ReleaseBuffer();
+                // strURLs.ReleaseBuffer();
             }
         }
     }

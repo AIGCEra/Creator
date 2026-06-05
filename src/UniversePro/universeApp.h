@@ -106,7 +106,12 @@ public:
 	~CUniverse();
 
 	bool				m_bHostCLR;
+	bool				m_bAsynLodeMode;
 	bool				m_bAppStarting = false;
+	DWORD				m_dwMainThreadID;
+	HHOOK				m_hMainGetMessageHook;
+	HANDLE				m_hInitComplete = nullptr;    // 初始化完成事件
+	HANDLE				m_hVerifyandMonitorInitEvent = nullptr;    // 初始化安全检测事件
 
 	CString				m_strCosmosVer;
 	CString				GetFileVer();
@@ -119,6 +124,7 @@ public:
 	static LRESULT CALLBACK ForegroundIdleProc(int nCode, WPARAM wParam, LPARAM lParam);
 	static LRESULT CALLBACK CosmosMsgWndProc(_In_ HWND hWnd, UINT msg, _In_ WPARAM wParam, _In_ LPARAM lParam);
 	static LRESULT CALLBACK CosmosExtendedWndProc(_In_ HWND hWnd, UINT msg, _In_ WPARAM wParam, _In_ LPARAM lParam);
+	static LRESULT CALLBACK GetMessageProc(int nCode, WPARAM wParam, LPARAM lParam);
 
 	static BOOL CALLBACK EnumProcessWindowsProc(HWND hWnd, LPARAM lParam)
 	{
@@ -138,8 +144,7 @@ public:
 private:
 	int ExitInstance();
 	BOOL InitInstance();
-
-	static LRESULT CALLBACK GetMessageProc(int nCode, WPARAM wParam, LPARAM lParam);
+	BOOL InitInstanceSync();
 };
 
 extern CUniverse theApp;

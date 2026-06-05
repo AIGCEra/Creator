@@ -43,18 +43,39 @@ CSpaceTelescope::CSpaceTelescope()
 	CString path = m_szBuffer;
 	m_strAppPath = path;
 	int nPos = m_strAppPath.ReverseFind('\\');
+	CString strExeName = m_strAppPath.Mid(nPos + 1);
+	nPos = strExeName.ReverseFind('.');
+	strExeName = strExeName.Left(nPos);
+	CString strCfg = m_strAppPath + _T(".policy");
+	nPos = m_strAppPath.ReverseFind('\\');
 	m_strAppPath = m_strAppPath.Left(nPos + 1);
-	m_bHostApp = false;
-	nPos = path.ReverseFind('.');
-	path = path.Left(nPos + 1);
+	HMODULE hModule = ::GetModuleHandle(L"universe.dll");
+	if (hModule != nullptr) {
+		CommonUniverse::GetWebRTImplFunction GetWebRTImplFunction =
+			(CommonUniverse::GetWebRTImplFunction)GetProcAddress(hModule,
+				"GetWebRTImpl");
+		if (GetWebRTImplFunction != NULL) {
+			IWebRT* pCosmos = nullptr;
+			g_pSpaceTelescopeImpl = GetWebRTImplFunction(&pCosmos);
+		}
+	}
 
+	if (g_pSpaceTelescopeImpl && g_pSpaceTelescopeImpl->m_strAgentPath != _T(""))
+		strCfg = g_pSpaceTelescopeImpl->m_strConfigFile;
+	path = strCfg;
+	nPos = path.ReverseFind('\\');
+	path = path.Left(nPos + 1);
+	m_bHostApp = false;
 	m_bNativeApp =
-		(::PathFileExists(path + _T("app.html")) == false) &&
-		(::PathFileExists(path + _T("html")) == false);
-	if (m_bNativeApp) {
-		path = path.Left(nPos - 6) + _T(".exe");
-		if (::PathFileExists(path))
-			m_bNativeApp = false;
+		(::PathFileExists(path + strExeName + _T(".app.html")) == false) &&
+		(::PathFileExists(path + strExeName + +_T(".html")) == false);
+	if (m_bNativeApp && ::PathFileExists(strCfg)) {
+		CTangramXmlParse m_Parse;
+		if (m_Parse.LoadFile(strCfg)) {
+			CString strExePath = m_Parse.attr(_T("exepath"), _T(""));
+			if (::PathFileExists(strExePath))
+				m_bNativeApp = false;
+		}
 	}
 }
 
@@ -238,24 +259,6 @@ CString CSpaceTelescope::GetLibPathFromAssemblyQualifiedName(CString strAssembly
 			{
 				return strObjName + _T("|") + strLib + _T("|");
 			}
-			else {
-				HMODULE hModule1 = ::GetModuleHandle(L"tangramwizard.dll");
-				if (hModule1)
-				{
-
-				}
-				HMODULE hModule = ::GetModuleHandle(L"devenv.exe");
-				if (hModule)
-				{
-					TCHAR szPath[MAX_PATH] = { 0 };
-					::GetModuleFileName(hModule, szPath, MAX_PATH);
-					strLib = szPath;
-					nPos = strLib.ReverseFind('\\');
-					strLib = strLib.Left(nPos + 1);
-					strLib += _T("PublicAssemblies\\tangramwizard");
-					return strObjName + _T("|") + strLib + _T("|");
-				}
-			}
 		}
 	}
 	else
@@ -304,8 +307,7 @@ CString CSpaceTelescope::GetLibPathFromAssemblyQualifiedName(CString strAssembly
 					strPath.Format(_T("%s\\Microsoft.NET\\assembly\\GAC_%d\\%s\\v4.0_%s__%s\\%s.dll"), m_szBuffer, 32, strLib, strVersion, strPublickeytoken, strLib);
 #endif
 					if (::PathFileExists(strPath)) {
-						bool bCheck = g_pSpaceTelescopeImpl->VerfyEVSHASign(strPath);
-						if (bCheck) {
+						if (g_pSpaceTelescopeImpl->VerfyEVSHASign(strPath)) {
 							return strObjName + _T("|") + strLib + _T("|") + strPath;
 						}
 						return _T("");
@@ -319,183 +321,38 @@ CString CSpaceTelescope::GetLibPathFromAssemblyQualifiedName(CString strAssembly
 		if (strLib.CompareNoCase(g_pSpaceTelescopeImpl->m_strExeName) == 0)
 		{
 			strPath = m_strAppPath + strLib + _T(".exe");
+			if (::PathFileExists(strPath) == false && m_strAppPath.CompareNoCase(g_pSpaceTelescopeImpl->m_strAgentPath) != 0)
+				strPath = g_pSpaceTelescopeImpl->m_strAgentPath + strLib + _T(".exe");
 		}
 		else
 		{
-			if (g_pSpaceTelescopeImpl->m_bOfficeApp)
-			{
-				if (m_strOfficeComponentPath == _T(""))
-				{
-					TCHAR m_szBuffer[MAX_PATH];
-					if (SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0, m_szBuffer) == S_OK) {
-						m_strOfficeComponentPath = CString(m_szBuffer);
-						m_strOfficeComponentPath += _T("\\tangram\\");
-						m_strOfficeComponentPath += g_pSpaceTelescopeImpl->m_strExeName;
-						m_strOfficeComponentPath += _T("\\");
-					}
-				}
-				strPath = m_strOfficeComponentPath + strLib + _T(".dll");
+			//if (g_pSpaceTelescopeImpl->m_bOfficeApp)
+			//{
+			//	if (m_strOfficeComponentPath == _T(""))
+			//	{
+			//		TCHAR m_szBuffer[MAX_PATH];
+			//		if (SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0, m_szBuffer) == S_OK) {
+			//			m_strOfficeComponentPath = CString(m_szBuffer);
+			//			m_strOfficeComponentPath += _T("\\tangram\\");
+			//			m_strOfficeComponentPath += g_pSpaceTelescopeImpl->m_strExeName;
+			//			m_strOfficeComponentPath += _T("\\");
+			//		}
+			//	}
+			//	strPath = m_strOfficeComponentPath + strLib + _T(".dll");
+			//}
+			//else
+			//{
+			//}
+			strPath = g_pSpaceTelescopeImpl->GetFileByName(g_pSpaceTelescopeImpl->m_strAppPath, strLib + _T(".dll"));
+			if (::PathFileExists(strPath) == false) {
+				strPath = g_pSpaceTelescopeImpl->GetFileByName(g_pSpaceTelescopeImpl->m_strAgentPath, strLib + _T(".dll"));
 			}
-			else
-			{
-				strPath = m_strAppPath + strLib + _T(".dll");
-			}
-		}
-		if (::PathFileExists(strPath)) {
-			bool bCheck = g_pSpaceTelescopeImpl->VerfyEVSHASign(strPath);
-			if (bCheck) {
+			if (::PathFileExists(strPath)&&g_pSpaceTelescopeImpl->VerfyEVSHASign(strPath)) {
 				return strObjName + _T("|") + strLib + _T("|") + strPath;
 			}
-			return _T("");
-		}
-		else
-		{
-			HANDLE hFind; // file handle
-			WIN32_FIND_DATA FindFileData;
-
-			hFind = FindFirstFile(m_strAppPath + _T("*.*"), &FindFileData); // find the first file
-			if (hFind == INVALID_HANDLE_VALUE)
-			{
-				return _T("");
-			}
-
-			bool bSearch = true;
-			while (bSearch) // until we finds an entry
-			{
-				if (FindNextFile(hFind, &FindFileData))
-				{
-					// Don't care about . and ..
-					//if(IsDots(FindFileData.cFileName))
-					if ((_tcscmp(FindFileData.cFileName, _T(".")) == 0) ||
-						(_tcscmp(FindFileData.cFileName, _T("..")) == 0))
-						continue;
-
-					// We have found a directory
-					if ((FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-					{
-						CString strPath = m_strAppPath + FindFileData.cFileName + _T("\\");
-						CString strPath2 = strPath + strLib + _T(".dll");
-						if (::PathFileExists(strPath2))
-							return strObjName + _T("|") + strLib + _T("|") + strPath2;
-						CString strRet = _GetLibPathFromAssemblyQualifiedName(strPath, strLib + _T(".dll"));
-						if (strRet != _T(""))
-							return strObjName + _T("|") + strLib + _T("|") + strRet;
-					}
-
-				}//FindNextFile
-				else
-				{
-					if (GetLastError() == ERROR_NO_MORE_FILES) // no more files there
-						bSearch = false;
-					else {
-						// some error occured, close the handle and return false
-						FindClose(hFind);
-						return _T("");
-					}
-				}
-			}//while
-
-			// Find .shared directory
-			CString strSharedPath = g_pSpaceTelescopeImpl->m_strAppDataPath;// OLE2T(pVal.bstrVal);
-			hFind = FindFirstFile(strSharedPath + _T(".shared\\*.*"), &FindFileData); // find the first file
-			if (hFind == INVALID_HANDLE_VALUE)
-			{
-				return _T("");
-			}
-
-			bSearch = true;
-			while (bSearch) // until we finds an entry
-			{
-				if (FindNextFile(hFind, &FindFileData))
-				{
-					// Don't care about . and ..
-					//if(IsDots(FindFileData.cFileName))
-					if ((_tcscmp(FindFileData.cFileName, _T(".")) == 0) ||
-						(_tcscmp(FindFileData.cFileName, _T("..")) == 0))
-						continue;
-
-					// We have found a directory
-					if ((FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-					{
-						CString strPath = m_strAppPath + FindFileData.cFileName + _T("\\");
-						CString strPath2 = strPath + strLib + _T(".dll");
-						if (::PathFileExists(strPath2))
-							return strObjName + _T("|") + strLib + _T("|") + strPath2;
-						CString strRet = _GetLibPathFromAssemblyQualifiedName(strPath, strLib + _T(".dll"));
-						if (strRet != _T(""))
-							return strObjName + _T("|") + strLib + _T("|") + strRet;
-					}
-
-				}//FindNextFile
-				else
-				{
-					if (GetLastError() == ERROR_NO_MORE_FILES) // no more files there
-						bSearch = false;
-					else {
-						// some error occured, close the handle and return false
-						FindClose(hFind);
-						return _T("");
-					}
-				}
-			}//while
-
-			// End Find .shared directory
-
-			FindClose(hFind); // closing file handle
 		}
 	}
 
-	return _T("");
-}
-
-CString CSpaceTelescope::_GetLibPathFromAssemblyQualifiedName(CString strDir, CString strLibName)
-{
-	CString strPath = strDir + strLibName;
-	if (::PathFileExists(strPath))
-		return strPath;
-	HANDLE hFind; // file handle
-	WIN32_FIND_DATA FindFileData;
-
-	hFind = FindFirstFile(strDir + _T("*.*"), &FindFileData); // find the first file
-	if (hFind == INVALID_HANDLE_VALUE)
-	{
-		return _T("");
-	}
-
-	bool bSearch = true;
-	while (bSearch) // until we finds an entry
-	{
-		if (FindNextFile(hFind, &FindFileData))
-		{
-			// Don't care about . and ..
-			//if(IsDots(FindFileData.cFileName))
-			if ((_tcscmp(FindFileData.cFileName, _T(".")) == 0) ||
-				(_tcscmp(FindFileData.cFileName, _T("..")) == 0))
-				continue;
-
-			// We have found a directory
-			if ((FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-			{
-				CString strPath = strDir + FindFileData.cFileName + _T("\\");
-				CString strRet = _GetLibPathFromAssemblyQualifiedName(strPath, strLibName);
-				if (strRet != _T(""))
-					return strRet;
-			}
-
-		}//FindNextFile
-		else
-		{
-			if (GetLastError() == ERROR_NO_MORE_FILES) // no more files there
-				bSearch = false;
-			else {
-				// some error occured, close the handle and return false
-				FindClose(hFind);
-				return _T("");
-			}
-		}
-	}//while
-
-	FindClose(hFind); // closing file handle
 	return _T("");
 }
 

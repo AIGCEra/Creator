@@ -17,29 +17,29 @@ namespace CommonUniverse {
 				::GetProcAddress(GetUser32Module(), "SetProcessDpiAwarenessContext"));
 			}();
 
-			if (SetProcessDpiAwarenessContextFunc)
+		if (SetProcessDpiAwarenessContextFunc)
+		{
+			// Windows 10 1703+: SetProcessDpiAwarenessContext
+			SetProcessDpiAwarenessContextFunc(dpiAwarenessContext);
+		}
+		else
+		{
+			static auto SetProcessDpiAwarenessFunc = []() {
+				return reinterpret_cast<decltype(&::SetProcessDpiAwareness)>(
+					::GetProcAddress(GetShcoreModule(), "SetProcessDpiAwareness"));
+				}();
+			if (SetProcessDpiAwarenessFunc)
 			{
-				// Windows 10 1703+: SetProcessDpiAwarenessContext
-				SetProcessDpiAwarenessContextFunc(dpiAwarenessContext);
+				// Windows 8.1+: SetProcessDpiAwareness
+				SetProcessDpiAwarenessFunc(
+					ProcessDpiAwarenessFromDpiAwarenessContext(dpiAwarenessContext));
 			}
-			else
+			else if (dpiAwarenessContext != DPI_AWARENESS_CONTEXT_UNAWARE)
 			{
-				static auto SetProcessDpiAwarenessFunc = []() {
-					return reinterpret_cast<decltype(&::SetProcessDpiAwareness)>(
-						::GetProcAddress(GetShcoreModule(), "SetProcessDpiAwareness"));
-					}();
-					if (SetProcessDpiAwarenessFunc)
-					{
-						// Windows 8.1+: SetProcessDpiAwareness
-						SetProcessDpiAwarenessFunc(
-							ProcessDpiAwarenessFromDpiAwarenessContext(dpiAwarenessContext));
-					}
-					else if (dpiAwarenessContext != DPI_AWARENESS_CONTEXT_UNAWARE)
-					{
-						// Windows 7+: SetProcessDPIAware
-						::SetProcessDPIAware();
-					}
+				// Windows 7+: SetProcessDPIAware
+				::SetProcessDPIAware();
 			}
+		}
 	}
 
 	HMODULE DpiUtil::GetUser32Module()
@@ -1117,6 +1117,7 @@ namespace CommonUniverse {
 	HWND CAppProxy::QueryWndInfo(QueryType nType, HWND hWnd) {
 		CWinApp* pApp = AfxGetApp();
 		CWnd* m_pMainWnd = AfxGetMainWnd();
+		static bool bInitStartInfo = false;
 		if (hWnd == NULL && m_pMainWnd) {
 			m_hMainWnd = m_pMainWnd->m_hWnd;
 			CCommandLineInfo cmdInfo;
@@ -1128,7 +1129,7 @@ namespace CommonUniverse {
 				if (hHandle == 0)
 				{
 					pWebRTFrameWndInfo = g_pSpaceTelescopeImpl->InsertWebRTFrameWndInfo(m_hMainWnd);
-					hHandle = pWebRTFrameWndInfo;					
+					hHandle = pWebRTFrameWndInfo;
 				}
 				else
 				{
@@ -1140,6 +1141,10 @@ namespace CommonUniverse {
 						CMDIFrameWnd* pMDIFrame = (CMDIFrameWnd*)m_pMainWnd;
 						m_pMDIClientAreaWnd = CWnd::FromHandlePermanent(pMDIFrame->m_hWndMDIClient);
 						m_pvoid = m_pMDIClientAreaWnd;
+						if (bInitStartInfo == false) {
+							bInitStartInfo = true;
+							g_pSpaceTelescopeImpl->SetCreatorData(_T("MFCMDIAppEx"), _T("InitStartInfo"));
+						}
 					}
 					POSITION pos = NULL;
 					CObList list;
@@ -1177,6 +1182,10 @@ namespace CommonUniverse {
 										if (pTemplate->IsKindOf(RUNTIME_CLASS(CMultiDocTemplate))) {
 											pWebRTFrameWndInfo->m_nFrameType = 2;
 										}
+										if (m_pDockingManager == nullptr && bInitStartInfo == false) {
+											bInitStartInfo = true;
+											g_pSpaceTelescopeImpl->SetCreatorData(_T("MFCMDIApp"), _T("InitStartInfo"));
+										}
 									}
 									else
 									{
@@ -1187,10 +1196,20 @@ namespace CommonUniverse {
 											else
 												m_pvoid = nullptr;
 											g_pSpaceTelescopeImpl->m_hFirstView = pView->m_hWnd;
-											if (pTemplate->IsKindOf(RUNTIME_CLASS(CMultiDocTemplate)))
+											if (pTemplate->IsKindOf(RUNTIME_CLASS(CMultiDocTemplate))) {
 												pWebRTFrameWndInfo->m_nFrameType = 1;
-											else
+												if (bInitStartInfo == false) {
+													bInitStartInfo = true;
+													g_pSpaceTelescopeImpl->SetCreatorData(m_pvoid == nullptr ? _T("MFCMDTApp") : _T("MFCMDTAppEx"), _T("InitStartInfo"));
+												}
+											}
+											else {
 												pWebRTFrameWndInfo->m_nFrameType = 4;
+												if (bInitStartInfo == false) {
+													bInitStartInfo = true;
+													g_pSpaceTelescopeImpl->SetCreatorData(m_pvoid == nullptr ? _T("MFCSDIApp") : _T("MFCSDIAppEx"), _T("InitStartInfo"));
+												}
+											}
 										}
 									}
 								}
@@ -1234,6 +1253,12 @@ namespace CommonUniverse {
 							}
 						}
 					}
+				}
+			}
+			else {
+				if (bInitStartInfo == false) {
+					bInitStartInfo = true;
+					g_pSpaceTelescopeImpl->SetCreatorData(_T("MFCDlgApp"), _T("InitStartInfo"));
 				}
 			}
 			return m_hMainWnd;

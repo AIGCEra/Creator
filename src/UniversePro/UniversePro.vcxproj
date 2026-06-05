@@ -98,7 +98,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <IgnoreImportLibrary>false</IgnoreImportLibrary>
     <TargetName>Universe</TargetName>
-    <OutDir>..\x64</OutDir>
+    <OutDir>C:\Program Files\Tangram\Creator</OutDir>
     <LibraryPath>..\CommonFile;$(VC_LibraryPath_x64);$(WindowsSDK_LibraryPath_x64);$(DDK_LibraryPath_DDKPlatform);$(LibraryPath);C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22621.0\km\x64</LibraryPath>
     <ExternalIncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(WindowsSDK_IncludePath);C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\km</ExternalIncludePath>
   </PropertyGroup>
@@ -112,7 +112,7 @@
     <OutDir>..\..\output32\</OutDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <OutDir>..\x64</OutDir>
+    <OutDir>C:\Program Files\Tangram\Creator</OutDir>
     <TargetName>Universe</TargetName>
     <LibraryPath>..\CommonFile;$(VC_LibraryPath_x64);$(WindowsSDK_LibraryPath_x64);$(DDK_LibraryPath_DDKPlatform);$(LibraryPath);C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22621.0\km\x64</LibraryPath>
     <ExecutablePath>$(VC_ExecutablePath_x64);$(CommonExecutablePath);$(WDKBinRoot_x86);$(WDKContentRoot)tools\$(WDKBuildFolder)\tracing\x64</ExecutablePath>
@@ -336,6 +336,7 @@ copy "$(TargetPath)" "$(DevEnvDir)PublicAssemblies\$(TargetName)$(TargetExt)"</C
       </ForceFileOutput>
       <FunctionOrder>
       </FunctionOrder>
+      <OutputFile>C:\Program Files\Tangram\Creator\Universe.dll</OutputFile>
     </Link>
     <PostBuildEvent />
     <PostBuildEvent>
@@ -361,7 +362,6 @@ copy "$(TargetPath)" "$(DevEnvDir)PublicAssemblies\$(TargetName)$(TargetExt)"</C
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">../stdafx.h</PrecompiledHeaderFile>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">../stdafx.h</PrecompiledHeaderFile>
     </ClCompile>
-    <ClCompile Include="CosmosWMI.cpp" />
     <ClCompile Include="Wormhole.cpp" />
     <ClCompile Include="Markup.cpp" />
     <ClCompile Include="eclipse.cpp" />

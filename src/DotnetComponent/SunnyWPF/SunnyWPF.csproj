@@ -34,8 +34,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Cosmos, Version=1.0.1992.1963, Culture=neutral, PublicKeyToken=1bcc94f26a4807a7, processorArchitecture=AMD64">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\..\..\output\Cosmos.dll</HintPath>
+      <HintPath>C:\Program Files\Tangram\Creator\Cosmos.dll</HintPath>
+      <Private>False</Private>
     </Reference>
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />

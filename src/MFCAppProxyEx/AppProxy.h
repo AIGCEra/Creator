@@ -1818,6 +1818,7 @@ namespace CommonUniverse
 		CString m_strExeName = _T("");
 		CString m_strWebRTVer = _T("");
 		CString m_strAppPath = _T("");
+		CString m_strAgentPath = _T("");
 		CString m_strConfigDataFile = _T("");
 		CString m_strAppDataPath = _T("");
 		CString m_strCurrentAppID = _T("");
@@ -1861,31 +1862,31 @@ namespace CommonUniverse
 		OmniboxViewViewsProxy* m_pCreatingOmniboxViewViews = nullptr;
 		CChromeRenderFrameHost* m_pCreatingChromeRenderFrameHostBase = nullptr;
 
-		map<HWND, CString> m_mapUIData;
-		map<HWND, CString> m_mapCtrlTag;
-		map<DWORD, IWebRT*> m_mapRemoteTangramApp;
-		map<CString, IDispatch*> m_mapObjDic;
-		map<CString, CComVariant> m_mapValInfo;
-		map<CString, IWebRT*> m_mapRemoteCosmos;
-		map<CString, CString> m_mapDocAppName;
-		map<CString, CString> m_mapDocTemplate;
-		map<CString, CString> m_mapDocDefaultName;
-		map<CString, CString> m_mapJavaNativeInfo;
-		map<CString, CString> m_mapCreatingWorkBenchInfo;
-		map<CString, HWND> m_mapSingleWndApp;
-		map<CString, IUniverseAppProxy*> m_mapWebRTAppProxy;
-		map<CString, IWindowProvider*> m_mapWindowProvider;
+		map<HWND, CString>						m_mapUIData;
+		map<HWND, CString>						m_mapCtrlTag;
+		map<DWORD, IWebRT*>						m_mapRemoteTangramApp;
+		map<CString, IDispatch*>				m_mapObjDic;
+		map<CString, CComVariant>				m_mapValInfo;
+		map<CString, IWebRT*>					m_mapRemoteCosmos;
+		map<CString, CString>					m_mapDocAppName;
+		map<CString, CString>					m_mapDocTemplate;
+		map<CString, CString>					m_mapDocDefaultName;
+		map<CString, CString>					m_mapJavaNativeInfo;
+		map<CString, CString>					m_mapCreatingWorkBenchInfo;
+		map<CString, HWND>						m_mapSingleWndApp;
+		map<CString, IUniverseAppProxy*>		m_mapWebRTAppProxy;
+		map<CString, IWindowProvider*>			m_mapWindowProvider;
 
-		map<HWND, IXobj*> m_mapXobj;
-		map<HWND, CWebViewImpl*> m_mapWebView;
-		map<HWND, HWND> m_mapBrowserForm;
-		map<HWND, IBrowser*> m_mapBrowserWnd;
-		map<HWND, IWebView*> m_mapFormWebPage;
-		map<HWND, IWorkBenchWindow*> m_mapWorkBenchWnd;
-		map<HWND, INuclei*> m_mapNuclei;
-		map<HWND, WebRTFrameWndInfo*> m_mapWebRTFrameWndInfo;
-		map<void*, IUnknown*> m_mapObjects;
-		map<IDispatch*, CString> m_mapObjEventDic;
+		map<HWND, IXobj*>						m_mapXobj;
+		map<HWND, CWebViewImpl*>				m_mapWebView;
+		map<HWND, HWND>							m_mapBrowserForm;
+		map<HWND, IBrowser*>					m_mapBrowserWnd;
+		map<HWND, IWebView*>					m_mapFormWebPage;
+		map<HWND, IWorkBenchWindow*>			m_mapWorkBenchWnd;
+		map<HWND, INuclei*>						m_mapNuclei;
+		map<HWND, WebRTFrameWndInfo*>			m_mapWebRTFrameWndInfo;
+		map<void*, IUnknown*>					m_mapObjects;
+		map<IDispatch*, CString>				m_mapObjEventDic;
 
 		virtual void Run() {}
 		virtual void BrowserAppStart() {}
@@ -1906,9 +1907,9 @@ namespace CommonUniverse
 		virtual void InsertMsgData(HWND hXobj, CString strKey, __int64 llVal) {}
 		virtual void InsertMsgData(HWND hXobj, CString strKey, CString strVal) {}
 		virtual void InserttoDataMap(int nType, CString strKey, void* pData) {}
-		virtual void AttachControlBar(WebRTFrameWndInfo* pInfo, HWND hCtrlBar) { }
+		virtual void AttachControlBar(WebRTFrameWndInfo* pInfo, HWND hCtrlBar) {}
 		virtual void OnUpdateParent(HWND hPWnd, HWND hWnd, int DeviceScaleFactor) {}
-		virtual void AttachMDIChild(HWND hFrame, HWND hMDIChild, HWND hChildClient) { }
+		virtual void AttachMDIChild(HWND hFrame, HWND hMDIChild, HWND hChildClient) {}
 		virtual void OnNetworkChangeNotify(int ConnectType, __int64 NetworkHandle) {}
 		virtual void OnDocumentOnLoadCompleted(CChromeRenderFrameHost*, HWND hHtmlWnd, void*) {}
 		virtual void OnWebRTMessage(HWND hWnd, CChromeRenderFrameHost*, CommonUniverse::IPCMsg* pIPCInfo) {}
@@ -1942,6 +1943,11 @@ namespace CommonUniverse
 		virtual CBrowserImpl* GetBrowserImpl(HWND hWnd) { return nullptr; }
 		virtual CTabStatsTrackerDelegate* SetTabStatsTrackerDelegate() { return nullptr; }
 		virtual WebRTFrameWndInfo* InsertWebRTFrameWndInfo(HWND hWnd) { return NULL; }
+		virtual bool VerfyEVSHASign(CString strLib) { return false; }
+		virtual bool ProcessMsg(MSG msg) { return false; }
+		virtual CString GetCreatorData(CString strKey) { return _T(""); }
+		virtual void SetCreatorData(CString strKey, CString strVal) {}
+		virtual CString GetFileByName(const CString& rootPath, const CString& strFileName) { return _T(""); }
 	};
 
 	class IWindowProvider {

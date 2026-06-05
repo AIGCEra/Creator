@@ -80,6 +80,7 @@
 #include "WPFView.h"
 #include <io.h>
 #include <stdio.h>
+#include <chrono>
 
 #include "TangramListView.h"
 #include "Psapi.h"
@@ -113,7 +114,11 @@ void CHelperWnd::OnFinalMessage(HWND hWnd)
 CUniverse::CUniverse()
 {
 	m_bHostCLR = false;
+	m_bAsynLodeMode = false;
 	m_bAppStarting = true;
+	m_hInitComplete = NULL;
+	m_hMainGetMessageHook = NULL;
+	m_hVerifyandMonitorInitEvent = nullptr;
 	m_strCosmosVer = _T("");
 }
 
@@ -125,8 +130,59 @@ CUniverse::~CUniverse()
 	OutputDebugString(_T("******************************Exit CUniverse******************************\n"));
 }
 
-BOOL CUniverse::InitInstance()
-{
+DWORD GetMainThreadIdForCurrentProcess() {
+	DWORD currentProcessId = GetCurrentProcessId();
+	DWORD mainThreadId = 0;
+
+	// 拍摄系统线程快照
+	HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+	if (hSnapshot == INVALID_HANDLE_VALUE)
+		return 0;
+
+	// 收集本进程所有线程的 ID 和创建时间
+	std::vector<std::pair<DWORD, FILETIME>> threads;
+
+	THREADENTRY32 te = { sizeof(te) };
+	if (Thread32First(hSnapshot, &te)) {
+		do
+		{
+			if (te.th32OwnerProcessID == currentProcessId) {
+				// 打开本进程内的线程 —— 一定成功，无需提权
+				HANDLE hThread = OpenThread(THREAD_QUERY_INFORMATION,
+					FALSE,
+					te.th32ThreadID);
+				if (hThread) {
+					FILETIME createTime, exitTime, kernelTime, userTime;
+					if (GetThreadTimes(hThread, &createTime, &exitTime,
+						&kernelTime, &userTime)) {
+						threads.push_back({ te.th32ThreadID, createTime });
+					}
+					CloseHandle(hThread);
+				}
+			}
+		} while (Thread32Next(hSnapshot, &te));
+	}
+
+	CloseHandle(hSnapshot);
+
+	if (threads.empty())
+		return 0;
+
+	// 创建时间最早的线程就是主线程
+	auto mainIt = std::min_element(threads.begin(), threads.end(),
+		[](const auto& a, const auto& b) {
+			return CompareFileTime(&a.second, &b.second) < 0;
+		});
+
+	return mainIt->first;
+}
+
+
+static bool g_bInit = false;
+
+BOOL CUniverse::InitInstanceSync() {
+	if (g_bInit)return true;
+	g_bInit = true;
 	OutputDebugString(_T("******* Start CUniverse::InitInstance()*************\n"));
 	TCHAR m_szBuffer[MAX_PATH];
 	memset(m_szBuffer, 0, sizeof(m_szBuffer));
@@ -139,24 +195,19 @@ BOOL CUniverse::InitInstance()
 	strExeName.MakeLower();
 	if (strExeName == _T("regsvr32"))
 		return true;
-	nPos = strExeName.Find(_T("proxy"));
-	int nPos2 = path.ReverseFind('\\');
-	bool bProxyApp = false;
-	CString strTemp = path.Left(nPos2 + 1);
-	if (nPos != -1) {
-		CString str = strExeName.Mid(nPos + 5);
-		CString str2 = strTemp + strExeName.Left(nPos) + _T(".exe");
-		if (str == _T("") && ::PathFileExists(str2)) {
-			strExeName = strExeName.Left(nPos);
-			bProxyApp = true;
-		}
+
+	HRESULT hr = SHGetFolderPath(NULL, CSIDL_COMMON_APPDATA, NULL, 0, m_szBuffer);
+	CString _strAppDataPath = _T("");
+	_strAppDataPath = m_szBuffer;
+	_strAppDataPath += _T("\\");
+	_strAppDataPath.Replace(_T("\\\\"), _T("\\"));
+	_strAppDataPath += _T("TangramData\\");
+	CString m_strDataDir = _strAppDataPath + _T("CreatorData\\");
+	if (!::PathIsDirectory(m_strDataDir)) {
+		CreateDirectory(m_strDataDir, NULL);
 	}
-	nPos = path.ReverseFind('.');
-	CString strPath = path.Left(nPos + 1);
-	CString strInitWebPage = strTemp + strExeName + _T("app.html");
-	CString strInitWebPage2 = strTemp + strExeName + +_T(".html");
-	CString strInitEclipse = strTemp + strExeName + +_T("eclipse");
-	CString strPath2 = strTemp + _T("AIAgent.dll");
+
+	::OleInitialize(NULL);
 
 	//_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 	//_CrtSetBreakAlloc(2925);
@@ -165,7 +216,6 @@ BOOL CUniverse::InitInstance()
 	InitCtrls.dwSize = sizeof(InitCtrls);
 	InitCtrls.dwICC = ICC_WIN95_CLASSES;
 	InitCommonControlsEx(&InitCtrls);
-	::OleInitialize(NULL);
 
 	m_bHostCLR = (BOOL)::GetModuleHandle(_T("mscoreei.dll"));
 
@@ -173,167 +223,207 @@ BOOL CUniverse::InitInstance()
 	{
 		new CComObject < CSpaceTelescope >;
 		g_pSpaceTelescope->m_strExeName = strExeName;
-		g_pSpaceTelescope->m_dwThreadID = ::GetCurrentThreadId();
 		if (g_pSpaceTelescope->m_hCBTHook == nullptr)
 			g_pSpaceTelescope->m_hCBTHook = SetWindowsHookEx(WH_CBT, CUniverse::CBTProc, NULL, g_pSpaceTelescope->m_dwThreadID);
-		theApp.SetHook(g_pSpaceTelescope->m_dwThreadID);
 	}
 #else
 	new CComObject < CSpaceTelescope >;
 	g_pSpaceTelescope->m_strExeName = strExeName;
-	//if(bProxyApp)
-	//	g_pSpaceTelescope->m_nAppType = APP_BROWSERAPP;
 
-	g_pSpaceTelescope->m_dwThreadID = ::GetCurrentThreadId();
 	if (g_pSpaceTelescope->m_hCBTHook == nullptr)
 		g_pSpaceTelescope->m_hCBTHook = SetWindowsHookEx(WH_CBT, CUniverse::CBTProc, NULL, g_pSpaceTelescope->m_dwThreadID);
 	g_pSpaceTelescope->m_bEnableProcessFormTabKey = true;
-	theApp.SetHook(g_pSpaceTelescope->m_dwThreadID);
 	if (g_pSpaceTelescope->m_hForegroundIdleHook == NULL)
 		g_pSpaceTelescope->m_hForegroundIdleHook = SetWindowsHookEx(WH_FOREGROUNDIDLE, CUniverse::ForegroundIdleProc, NULL, ::GetCurrentThreadId());
 #endif	
 
-	if (g_pSpaceTelescope)
+	int nPos2 = path.ReverseFind('\\');
+	CString strTemp = path.Left(nPos2 + 1);
+	nPos = path.ReverseFind('.');
+	CString strPath = path.Left(nPos + 1);
+	CString strInitWebPage = _T("");
+	CString strInitWebPage2 = _T("");
+	CString strInitEclipse = _T("");
+
+	g_pSpaceTelescope->GetPolicyFile();
+	if (g_pSpaceTelescope->m_bAgentModel)
 	{
-		WNDCLASS wndClass{};
-		wndClass.style = CS_DBLCLKS;
-		wndClass.lpfnWndProc = ::DefWindowProc;
-		wndClass.cbClsExtra = 0;
-		wndClass.cbWndExtra = 0;
-		wndClass.hInstance = AfxGetInstanceHandle();
-		wndClass.hIcon = 0;
-		wndClass.hCursor = ::LoadCursor(NULL, IDC_ARROW);
-		wndClass.hbrBackground = 0;
-		wndClass.lpszMenuName = NULL;
-		wndClass.lpszClassName = _T("Universe GridWindow Class");
+		strInitWebPage = g_pSpaceTelescope->m_strAgentPath + strExeName + _T(".app.html");
+		strInitWebPage2 = g_pSpaceTelescope->m_strAgentPath + strExeName + +_T(".html");
+		strInitEclipse = g_pSpaceTelescope->m_strAgentPath + strExeName + +_T("eclipse");
+	}
+	else {
+		int nPos2 = path.ReverseFind('\\');
+		CString strTemp = path.Left(nPos2 + 1);
+		nPos = path.ReverseFind('.');
+		CString strPath = path.Left(nPos + 1);
+		strInitWebPage = strTemp + strExeName + _T("app.html");
+		strInitWebPage2 = strTemp + strExeName + +_T(".html");
+		strInitEclipse = strTemp + strExeName + +_T("eclipse");
+	}
+	WNDCLASS wndClass{};
+	wndClass.style = CS_DBLCLKS;
+	wndClass.lpfnWndProc = ::DefWindowProc;
+	wndClass.cbClsExtra = 0;
+	wndClass.cbWndExtra = 0;
+	wndClass.hInstance = AfxGetInstanceHandle();
+	wndClass.hIcon = 0;
+	wndClass.hCursor = ::LoadCursor(NULL, IDC_ARROW);
+	wndClass.hbrBackground = 0;
+	wndClass.lpszMenuName = NULL;
+	wndClass.lpszClassName = _T("Universe GridWindow Class");
 
-		RegisterClass(&wndClass);
+	RegisterClass(&wndClass);
 
-		wndClass.lpszClassName = _T("WebRT Process Info");
-		RegisterClass(&wndClass);
+	wndClass.lpszClassName = _T("WebRT Process Info");
+	RegisterClass(&wndClass);
 
-		g_pSpaceTelescope->m_lpszSplitterClass = wndClass.lpszClassName;
+	g_pSpaceTelescope->m_lpszSplitterClass = wndClass.lpszClassName;
 
-		wndClass.style = CS_HREDRAW | CS_VREDRAW;
-		//wndClass.hbrBackground = (HBRUSH)COLOR_BACKGROUND;
-		wndClass.lpszClassName = L"Cosmos Xobj Class";
+	wndClass.style = CS_HREDRAW | CS_VREDRAW;
+	//wndClass.hbrBackground = (HBRUSH)COLOR_BACKGROUND;
+	wndClass.lpszClassName = L"Cosmos Xobj Class";
 
-		RegisterClass(&wndClass);
+	RegisterClass(&wndClass);
 
-		wndClass.lpfnWndProc = CosmosMsgWndProc;
-		wndClass.style = CS_HREDRAW | CS_VREDRAW;
-		wndClass.lpszClassName = L"Tangram Message Window Class";
+	wndClass.lpfnWndProc = CosmosMsgWndProc;
+	wndClass.style = CS_HREDRAW | CS_VREDRAW;
+	wndClass.lpszClassName = L"Tangram Message Window Class";
 
-		RegisterClass(&wndClass);
+	RegisterClass(&wndClass);
 
-		wndClass.lpfnWndProc = CosmosExtendedWndProc;
-		wndClass.lpszClassName = L"Chrome Extended Window Class";
+	wndClass.lpfnWndProc = CosmosExtendedWndProc;
+	wndClass.lpszClassName = L"Chrome Extended Window Class";
 
-		RegisterClass(&wndClass);
+	RegisterClass(&wndClass);
 
-		g_pSpaceTelescope->m_strExeName = strExeName;
-		g_pSpaceTelescope->m_dwThreadID = ::GetCurrentThreadId();
-		g_pSpaceTelescope->CosmosLoad();
-		theApp.SetHook(g_pSpaceTelescope->m_dwThreadID);
-		if (::GetModuleHandle(_T("msenv.dll")))
-			g_pSpaceTelescope->Init();
-		else
+	g_pSpaceTelescope->m_strExeName = strExeName;
+	theApp.SetHook(g_pSpaceTelescope->m_dwThreadID);
+
+	g_pSpaceTelescope->CosmosLoad();
+
+	if (::GetModuleHandle(_T("msenv.dll")))
+		g_pSpaceTelescope->Init();
+	else
+	{
+		BOOL bHasChromeRT = false;
+		g_pSpaceTelescope->m_strStartupURL = _T("");
+		bool bSupportBrowser = (::PathFileExists(strInitWebPage) && !::PathIsDirectory(strInitWebPage));
+		BOOL bWin32Model = bSupportBrowser && ::PathFileExists(strInitWebPage2) && !::PathIsDirectory(strInitWebPage2);
+		bool bSupportEclipse = (::PathFileExists(strInitEclipse) && !::PathIsDirectory(strInitEclipse));
+		TCHAR m_szBuffer[MAX_PATH];
+		if (SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0, m_szBuffer) == S_OK) {
+			CString strChromeRTFilePath = CString(m_szBuffer);
+			strChromeRTFilePath += _T("\\Tangram\\Creator\\AIAgent.dll");
+			if (::PathFileExists(strChromeRTFilePath)) {
+				bHasChromeRT = true;;
+			}
+		}
+
+		if (bWin32Model == false)
 		{
-			//#ifdef _WIN64
-			g_pSpaceTelescope->m_strStartupURL = _T("");
-			bool bSupportBrowser = (::PathFileExists(strInitWebPage) && !::PathIsDirectory(strInitWebPage));
-			BOOL bWin32Model = bSupportBrowser && ::PathFileExists(strInitWebPage2) && !::PathIsDirectory(strInitWebPage2);
-			bool bSupportEclipse = (::PathFileExists(strInitEclipse) && !::PathIsDirectory(strInitEclipse));
-			BOOL bHasChromeRT = (bWin32Model == false) && ::PathFileExists(strPath2) && !::PathIsDirectory(strPath2);
-			if (bWin32Model == false)
+			if (!bSupportBrowser)
 			{
-				if (bHasChromeRT == false)
-				{
-					TCHAR m_szBuffer[MAX_PATH];
-					if (SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0, m_szBuffer) == S_OK) {
-						CString strChromeRTFilePath = CString(m_szBuffer);
-						strChromeRTFilePath += _T("\\Tangram\\Creator\\AIAgent.dll");
-						if (::PathFileExists(strChromeRTFilePath)) {
-							bHasChromeRT = true;;
+				strInitWebPage = _T("");
+			}
+		}
+		if (bSupportEclipse)
+		{
+			g_pSpaceTelescope->m_bEclipse = false;
+			CString strplugins = g_pSpaceTelescope->m_strAppPath + _T("plugins\\");
+			if (::PathIsDirectory(strplugins)) {
+				CString strPath = strplugins + _T("*.jar");
+				_wfinddata_t fd;
+				fd.attrib = FILE_ATTRIBUTE_DIRECTORY;
+				intptr_t pf = _wfindfirst(strPath, &fd);
+				if ((fd.attrib & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+					g_pSpaceTelescope->m_bEclipse = true;
+				}
+				else {
+					while (!_wfindnext(pf, &fd)) {
+						if ((fd.attrib & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+							g_pSpaceTelescope->m_bEclipse = true;
+							break;
 						}
 					}
 				}
-				if (!bSupportBrowser)
-				{
-					strInitWebPage = _T("");
-				}
+				_findclose(pf);
 			}
+			bSupportEclipse = g_pSpaceTelescope->m_bEclipse;
+		}
+		if (bHasChromeRT && bSupportBrowser && bSupportEclipse)
+		{
+			g_pSpaceTelescope->m_strStartupURL = strInitWebPage;
+			g_pSpaceTelescope->m_strStartView = strInitEclipse;
+			g_pSpaceTelescope->m_nAppType = APP_BROWSER_ECLIPSE;
+		}
+		if (g_pSpaceTelescope->m_strStartupURL == _T(""))
+		{
 			if (bSupportEclipse)
 			{
-				g_pSpaceTelescope->m_bEclipse = false;
-				CString strplugins = g_pSpaceTelescope->m_strAppPath + _T("plugins\\");
-				if (::PathIsDirectory(strplugins)) {
-					CString strPath = strplugins + _T("*.jar");
-					_wfinddata_t fd;
-					fd.attrib = FILE_ATTRIBUTE_DIRECTORY;
-					intptr_t pf = _wfindfirst(strPath, &fd);
-					if ((fd.attrib & FILE_ATTRIBUTE_DIRECTORY) == 0) {
-						g_pSpaceTelescope->m_bEclipse = true;
-					}
-					else {
-						while (!_wfindnext(pf, &fd)) {
-							if ((fd.attrib & FILE_ATTRIBUTE_DIRECTORY) == 0) {
-								g_pSpaceTelescope->m_bEclipse = true;
-								break;
-							}
-						}
-					}
-					_findclose(pf);
-				}
-				bSupportEclipse = g_pSpaceTelescope->m_bEclipse;
-			}
-			if (bHasChromeRT && bSupportBrowser && bSupportEclipse)
-			{
-				g_pSpaceTelescope->m_strStartupURL = strInitWebPage;
-				g_pSpaceTelescope->m_strStartView = strInitEclipse;
-				g_pSpaceTelescope->m_nAppType = APP_BROWSER_ECLIPSE;
-			}
-			if (g_pSpaceTelescope->m_strStartupURL == _T(""))
-			{
-				if (bSupportEclipse)
-				{
-					g_pSpaceTelescope->m_nAppType = APP_ECLIPSE;
-					g_pSpaceTelescope->m_strStartupURL = strInitEclipse;
-				}
-				else
-				{
-					if (!bSupportBrowser)
-					{
-						strPath = strPath + _T("win32");
-						if (::PathFileExists(strPath) && !::PathIsDirectory(strPath))
-						{
-							g_pSpaceTelescope->m_nAppType = APP_WIN32;
-							g_pSpaceTelescope->m_strStartupURL = strPath;
-						}
-						else if (bHasChromeRT)
-						{
-							g_pSpaceTelescope->m_nAppType = APP_BROWSER;
-							g_pSpaceTelescope->m_strStartupURL = _T("");
-						}
-					}
-				}
-			}
-			else {
-				g_pSpaceTelescope->m_nAppType = APP_BROWSER;
-			}
-			g_pSpaceTelescope->Init();
-			// if (bHasChromeRT && !g_pSpaceTelescope->m_bIsWin7) {
-			if (!g_pSpaceTelescope->m_bIsWin7) {
-				DPI_AWARENESS_CONTEXT dpiAwarenessContext = DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2;
-				DpiUtil::SetProcessDpiAwarenessContext(dpiAwarenessContext);
+				g_pSpaceTelescope->m_nAppType = APP_ECLIPSE;
+				g_pSpaceTelescope->m_strStartupURL = strInitEclipse;
 			}
 			else
 			{
-				DPI_AWARENESS_CONTEXT dpiAwarenessContext = DPI_AWARENESS_CONTEXT_SYSTEM_AWARE;
-				DpiUtil::SetProcessDpiAwarenessContext(dpiAwarenessContext);
+				if (!bSupportBrowser)
+				{
+					strPath = strPath + _T("win32");
+					if (::PathFileExists(strPath) && !::PathIsDirectory(strPath))
+					{
+						g_pSpaceTelescope->m_nAppType = APP_WIN32;
+						g_pSpaceTelescope->m_strStartupURL = strPath;
+					}
+					else if (bHasChromeRT)
+					{
+						g_pSpaceTelescope->m_nAppType = APP_BROWSER;
+						g_pSpaceTelescope->m_strStartupURL = _T("");
+					}
+				}
 			}
 		}
+		else {
+			g_pSpaceTelescope->m_nAppType = APP_BROWSER;
+		}
+
+		g_pSpaceTelescope->Init();
+
+		if (!g_pSpaceTelescope->m_bIsWin7) {
+			DPI_AWARENESS_CONTEXT dpiAwarenessContext = DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2;
+			DpiUtil::SetProcessDpiAwarenessContext(dpiAwarenessContext);
+		}
+		else
+		{
+			DPI_AWARENESS_CONTEXT dpiAwarenessContext = DPI_AWARENESS_CONTEXT_SYSTEM_AWARE;
+			DpiUtil::SetProcessDpiAwarenessContext(dpiAwarenessContext);
+		}
 	}
+	return true;
+}
+
+BOOL CUniverse::InitInstance()
+{
+	m_hVerifyandMonitorInitEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+	m_dwMainThreadID = GetMainThreadIdForCurrentProcess();
+	m_bAsynLodeMode = ::GetCurrentThreadId() != m_dwMainThreadID;
+
+	auto t = create_task([this]()
+		{
+			if (m_bAsynLodeMode) {
+				m_hInitComplete = CreateEvent(NULL, FALSE, FALSE, NULL);
+				m_hMainGetMessageHook = SetWindowsHookEx(WH_GETMESSAGE, CUniverse::GetMessageProc, NULL, theApp.m_dwMainThreadID);
+				WaitForSingleObject(m_hInitComplete, INFINITE);
+				CloseHandle(theApp.m_hInitComplete);
+				m_hInitComplete = nullptr;
+			}
+			WaitForSingleObject(m_hVerifyandMonitorInitEvent, INFINITE);
+			g_pSpaceTelescope->VerifyandMonitorInit();
+			CloseHandle(m_hVerifyandMonitorInitEvent);
+			m_hVerifyandMonitorInitEvent = nullptr;
+			return 0;
+		});
+	if (m_bAsynLodeMode == false)
+		return InitInstanceSync();
 	return true;
 }
 
@@ -479,31 +569,11 @@ LRESULT CALLBACK CUniverse::CosmosMsgWndProc(_In_ HWND hWnd, UINT msg, _In_ WPAR
 			case 1:
 			{
 				::PostMessageW(hWnd, WM_COSMOSMSG, 2, 20240220);
-				//auto t = create_task([hWnd]()
-				//	{
-				//		while (1)
-				//		{
-				//			Sleep(500);
-				//			if (::GetModuleHandle(_T("mfc140u.dll")) || ::GetModuleHandle(_T("mfc140ud.dll")))
-				//				::PostAppMessage(::GetCurrentThreadId(), WM_CHROMEAPPINIT, 0, 0);
-				//			else
-				//				::PostAppMessage(g_pSpaceTelescope->m_dwThreadID, WM_CHROMEAPPINIT, 0, 0);
-				//			break;
-				//		}
-				//		return;
-				//	});
 			}
 			break;
 			case 2:
 			{
 				::PostAppMessage(::GetCurrentThreadId(), WM_CHROMEAPPINIT, 1, 1);
-				//	HMODULE hModule = ::GetModuleHandle(_T("WebRTHelper.dll"));
-				//	DWORD dw = ::FreeLibrary(hModule);
-				//	while (dw)
-				//		dw = ::FreeLibrary(hModule);
-				//	if (::GetModuleHandle(_T("WebRTHelper.dll")) == NULL) {
-				//		::PostAppMessage(::GetCurrentThreadId(), WM_CHROMEAPPINIT, 1, 1);
-				//	}
 			}
 			break;
 			}
@@ -547,49 +617,6 @@ LRESULT CALLBACK CUniverse::CosmosMsgWndProc(_In_ HWND hWnd, UINT msg, _In_ WPAR
 				g_pSpaceTelescope->m_pCLRProxy->CosmosAction(CComBSTR("startclrapp"), nullptr);
 			}
 			break;
-			}
-		}
-		break;
-		case 20240222:
-		{
-			switch (wParam) {
-			case 0:
-			{
-				::PostMessageW(hWnd, WM_COSMOSMSG, 1, 20240222);
-			}
-			break;
-			case 1:
-			{
-				::PostMessageW(hWnd, WM_COSMOSMSG, 2, 20240222);
-			}
-			break;
-			case 2:
-			{
-				HMODULE hModule = ::GetModuleHandle(_T("WebRTHelper.dll"));
-				DWORD dw = ::FreeLibrary(hModule);
-				while (dw)
-					dw = ::FreeLibrary(hModule);
-				if (::GetModuleHandle(_T("WebRTHelper.dll")) == NULL) {
-					::ShowWindow(g_pSpaceTelescope->m_hMainWnd, SW_SHOWNORMAL);
-					::BringWindowToTop(g_pSpaceTelescope->m_hMainWnd);
-					g_pSpaceTelescope->m_pBrowserFactory->CreateBrowser(NULL, _T("tangram://newtab|"));
-				}
-			}
-			break;
-			}
-		}
-		break;
-		case 20240223:
-		{
-			HMODULE hModule = ::GetModuleHandle(_T("WebRTHelper.dll"));
-			DWORD dw = ::FreeLibrary(hModule);
-			while (dw)
-				dw = ::FreeLibrary(hModule);
-			if (::GetModuleHandle(_T("WebRTHelper.dll")) == NULL) {
-				::ShowWindow(g_pSpaceTelescope->m_hMainWnd, SW_SHOWNORMAL);
-				::BringWindowToTop(g_pSpaceTelescope->m_hMainWnd);
-				HWND hBrowser = g_pSpaceTelescope->m_pBrowserFactory->CreateBrowser(NULL, _T("tangram://newtab|"));
-				::BringWindowToTop(hBrowser);
 			}
 		}
 		break;
@@ -771,11 +798,6 @@ LRESULT CUniverse::CBTProc(int nCode, WPARAM wParam, LPARAM lParam)
 		::GetClassName(hWnd, g_pSpaceTelescope->m_szBuffer, MAX_PATH);
 		CString strClassName = g_pSpaceTelescope->m_szBuffer;
 		memset(g_pSpaceTelescope->m_szBuffer, 0, sizeof(g_pSpaceTelescope->m_szBuffer));
-		//if (bChromeRTApp&&strClassName.Find(_T("Afx:") == 0)) {
-		//	//if (UnhookWindowsHookEx(g_hCBTHook))
-		//	//	//::MessageBox(NULL, L"", L"", MB_OK);
-		//	return S_FALSE;
-		//}
 
 		WebRTFrameWndInfo* pWebRTFrameWndInfo = nullptr;
 		if (dwID == 696325) {
@@ -1046,15 +1068,26 @@ LRESULT CUniverse::CBTProc(int nCode, WPARAM wParam, LPARAM lParam)
 }
 
 static const int kMsgHaveWork = WM_USER + 1;
-
+static bool g_bChromiumInit = false;
 LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
+	HHOOK hHook = NULL;
 	LPMSG lpMsg = (LPMSG)lParam;
 	DWORD dwID = ::GetCurrentThreadId();
-	CommonThreadInfo* pThreadInfo = g_pSpaceTelescope->GetThreadInfo(dwID);
+	if (theApp.m_bAsynLodeMode && dwID == theApp.m_dwMainThreadID) {
+		hHook = theApp.m_hMainGetMessageHook;
+		if (g_pSpaceTelescope == NULL) {
+			::PostAppMessage(theApp.m_dwMainThreadID, WM_COSMOSMSG, 0, 20260710);
+		}
+	}
+	if (g_pSpaceTelescope)
+	{
+		CommonThreadInfo* pThreadInfo = g_pSpaceTelescope->GetThreadInfo(dwID);
+		hHook = pThreadInfo->m_hGetMessageHook;
+	}
 	if (lpMsg->message == WM_TIMER)
 	{
-		return CallNextHookEx(pThreadInfo->m_hGetMessageHook, nCode, wParam, lParam);
+		return CallNextHookEx(hHook, nCode, wParam, lParam);
 	}
 	if (nCode >= 0)
 	{
@@ -1107,7 +1140,7 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 					g_pSpaceTelescope->m_pWebRTDelegate &&
 					g_pSpaceTelescope->m_pWebRTDelegate->OnUniversePreTranslateMessage(lpMsg))
 				{
-					return CallNextHookEx(pThreadInfo->m_hGetMessageHook, nCode, wParam, lParam);
+					return CallNextHookEx(hHook, nCode, wParam, lParam);
 				}
 			}
 			break;
@@ -1226,7 +1259,7 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 										lpMsg->lParam = 0;
 										lpMsg->wParam = 0;
 										lpMsg->message = 0;
-										return CallNextHookEx(pThreadInfo->m_hGetMessageHook, nCode, wParam, lParam);
+										return CallNextHookEx(hHook, nCode, wParam, lParam);
 									}
 									else
 									{
@@ -1234,7 +1267,7 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 										{
 											if (g_pSpaceTelescope->m_pWebRTDelegate->OnUniversePreTranslateMessage(lpMsg))
 											{
-												return CallNextHookEx(pThreadInfo->m_hGetMessageHook, nCode, wParam, lParam);
+												return CallNextHookEx(hHook, nCode, wParam, lParam);
 											}
 										}
 									}
@@ -1245,7 +1278,7 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 									{
 										if (g_pSpaceTelescope->m_pWebRTDelegate->OnUniversePreTranslateMessage(lpMsg))
 										{
-											return CallNextHookEx(pThreadInfo->m_hGetMessageHook, nCode, wParam, lParam);
+											return CallNextHookEx(hHook, nCode, wParam, lParam);
 										}
 									}
 								}
@@ -1287,7 +1320,7 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 						lpMsg->lParam = 0;
 						lpMsg->wParam = 0;
 						lpMsg->message = 0;
-						return CallNextHookEx(pThreadInfo->m_hGetMessageHook, nCode, wParam, lParam);
+						return CallNextHookEx(hHook, nCode, wParam, lParam);
 						break;
 					}
 					if (g_pSpaceTelescope->m_pNucleus && g_pSpaceTelescope->m_pActiveXobj && pWnd && pWnd->PreTranslateMessage(lpMsg))
@@ -1300,13 +1333,13 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 							//lpMsg->lParam = 0;
 							//lpMsg->wParam = 0;
 							//lpMsg->message = 0;
-							return CallNextHookEx(pThreadInfo->m_hGetMessageHook, nCode, wParam, lParam);
+							return CallNextHookEx(hHook, nCode, wParam, lParam);
 						}
 						lpMsg->hwnd = NULL;
 						lpMsg->lParam = 0;
 						lpMsg->wParam = 0;
 						lpMsg->message = 0;
-						return CallNextHookEx(pThreadInfo->m_hGetMessageHook, nCode, wParam, lParam);
+						return CallNextHookEx(hHook, nCode, wParam, lParam);
 					}
 					if (pView)
 					{
@@ -1364,7 +1397,7 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 						}
 					}
 					if (g_pSpaceTelescope->m_bOfficeApp)
-						return CallNextHookEx(pThreadInfo->m_hGetMessageHook, nCode, wParam, lParam);
+						return CallNextHookEx(hHook, nCode, wParam, lParam);
 					TranslateMessage(lpMsg);
 					if (g_pSpaceTelescope->m_strExeName != _T("devenv"))
 					{
@@ -1373,7 +1406,7 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 						lpMsg->lParam = 0;
 						lpMsg->wParam = 0;
 						lpMsg->message = 0;
-						return CallNextHookEx(pThreadInfo->m_hGetMessageHook, nCode, wParam, lParam);
+						return CallNextHookEx(hHook, nCode, wParam, lParam);
 					}
 				}
 				break;
@@ -1426,7 +1459,7 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 									lpMsg->lParam = 0;
 									lpMsg->wParam = 0;
 									lpMsg->message = 0;
-									return CallNextHookEx(pThreadInfo->m_hGetMessageHook, nCode, wParam, lParam);
+									return CallNextHookEx(hHook, nCode, wParam, lParam);
 								}
 							}
 							TranslateMessage(lpMsg);
@@ -1582,7 +1615,7 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 					if (g_pSpaceTelescope->m_pWebRTDelegate->OnUniversePreTranslateMessage(lpMsg))
 						break;
 				}
-				return CallNextHookEx(pThreadInfo->m_hGetMessageHook, nCode, wParam, lParam);
+				return CallNextHookEx(hHook, nCode, wParam, lParam);
 			}
 			break;
 			case WM_MDICHILDMIN:
@@ -1593,8 +1626,9 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 				if (lpMsg->lParam == APP_WIN32 ||
 					lpMsg->lParam == APP_ECLIPSE)
 					break;
+				if (g_bChromiumInit)
+					break;
 				TCHAR m_szBuffer[MAX_PATH];
-				//HMODULE hProxyModule = ::GetModuleHandle(_T("WebRTHelper.dll"));
 				typedef int(__stdcall* _InitApp)(bool bSupportCrashReporting);
 				_InitApp FuncInitApp;
 				HMODULE hModule = g_pSpaceTelescope->m_hWebRTProxyModel;
@@ -1629,10 +1663,7 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 								g_pSpaceTelescope->m_hMainWnd = hWnd;
 							}
 						}
-						HMODULE hModule3 = ::GetModuleHandle(_T("WebRTHelper.dll"));
-						DWORD dw = ::FreeLibrary(hModule3);
-						while (dw)
-							dw = ::FreeLibrary(hModule3);
+						g_bChromiumInit = true;
 
 						FuncInitApp(false);
 						::PostQuitMessage(0);
@@ -1657,11 +1688,10 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 				case 1:
 				{
 					g_pSpaceTelescope->m_bCreatingDevTool = true;
-					auto it = g_pSpaceTelescope->m_mapBrowserWnd.find(::GetActiveWindow());
-					if (it != g_pSpaceTelescope->m_mapBrowserWnd.end())
-					{
-						ATLTRACE(_T("\n"));
-					}
+					//auto it = g_pSpaceTelescope->m_mapBrowserWnd.find(::GetActiveWindow());
+					//if (it != g_pSpaceTelescope->m_mapBrowserWnd.end())
+					//{
+					//}
 				}
 				break;
 				}
@@ -1671,101 +1701,44 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 			{
 				switch (lpMsg->lParam)
 				{
+				case 20260710:
+				{
+					if (g_pSpaceTelescope)
+						break;
+					if (theApp.m_hInitComplete && ::UnhookWindowsHookEx(theApp.m_hMainGetMessageHook)) {
+						SetEvent(theApp.m_hInitComplete); // 通知初始化线程可以退出
+					}
+					theApp.InitInstanceSync();
+				}
+				break;
 				case 20250531:
 				{
-					CString strProxyExe = g_pSpaceTelescope->m_strAppPath + g_pSpaceTelescope->m_strAppName + _T("loader.exe");
-					CString strProxyWhiteList = g_pSpaceTelescope->m_strAppPath + g_pSpaceTelescope->m_strAppName + _T("WhiteList.dll");
-					if (::PathFileExists(strProxyWhiteList)) {
-						if (g_pSpaceTelescope->CompareFileEVSignatures(strProxyExe, strProxyWhiteList)) {
-							g_pSpaceTelescope->GetEnableAllDllInjectInfo();
+					if (g_pSpaceTelescope->m_bAgentModel) {
+						int nChildID = lpMsg->wParam;
+						CString strProxy = _T("");
+						CTangramXmlParse m_Parse;
+						bool bCustomizedMainWnd = false;
+						if (m_Parse.LoadFile(g_pSpaceTelescope->m_strConfigFile)) {
+							strProxy = m_Parse.attr(_T("appproxy"), _T("MfcAppProxy.dll"));
+							bCustomizedMainWnd = m_Parse.attrBool(_T("customizedmainwnd"));
+							nChildID = m_Parse.attrInt(_T("mainclientid"));
+						}
+						bool bMFC = (::GetModuleHandle(_T("mfc140u.dll")) != NULL) || (::GetModuleHandle(_T("mfc140ud.dll")) != NULL);
+						if (bMFC) {
+							g_pSpaceTelescope->GetMainWnd(nChildID, _T("MFCAppProxy.dll"));
+							::PostThreadMessage(g_pSpaceTelescope->m_dwThreadID, WM_CHROMEAPPINIT, 0, 0);
+							break;
+						}
+						if ((::GetModuleHandle(_T("MSCOREE.dll")) != NULL) || (::GetModuleHandle(_T("hostfxr.dll")) != NULL)) {
+							::PostThreadMessage(g_pSpaceTelescope->m_dwThreadID, WM_CHROMEAPPINIT, 0, 0);
+							//::PostMessage(g_pSpaceTelescope->m_hCosmosWnd, WM_COSMOSMSG, 0, 20240221);
+							break;
 						}
 						else {
-							g_pSpaceTelescope->m_bEnableAllDllInject = true;
-						}
-					}
-					else {
-						g_pSpaceTelescope->m_bEnableAllDllInject = true;
-					}
-					int nChildID = lpMsg->wParam;
-					CString strProxy = _T("");
-					CTangramXmlParse m_Parse;
-					bool bCustomizedMainWnd = false;
-					if (m_Parse.LoadFile(g_pSpaceTelescope->m_strConfigDataFile)) {
-						strProxy = m_Parse.attr(_T("appproxy"), _T("MfcAppProxy.dll"));
-						bCustomizedMainWnd = m_Parse.attrBool(_T("customizedmainwnd"));
-						nChildID = m_Parse.attrInt(_T("mainclientid"));
-						m_Parse.put_attr(_T("cosmoswindowhandle"), (__int64)g_pSpaceTelescope->m_hCosmosWnd);
-						m_Parse.SaveFile(g_pSpaceTelescope->m_strConfigDataFile);
-					}
-					HANDLE hModuleSnap = INVALID_HANDLE_VALUE;
-					MODULEENTRY32 me32{};
-
-					//  Take a snapshot of all modules in the specified process. 
-					hModuleSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, ::GetCurrentProcessId());
-
-					//  Set the size of the structure before using it. 
-					me32.dwSize = sizeof(MODULEENTRY32);
-
-					//  Retrieve information about the first module, 
-					//  and exit if unsuccessful 
-					if (!Module32First(hModuleSnap, &me32))
-					{
-						CloseHandle(hModuleSnap);     // Must clean up the snapshot object! 
-					}
-
-					int nIndex = 0;
-					//  Now walk the module list of the process, 
-					do
-					{
-						CString strModuleName = me32.szModule;
-						CString strMessage = _T("");
-						strMessage.Format(_T("Module Index: %d, Module Name: %s\n"), nIndex++, strModuleName);
-						OutputDebugString(strMessage);
-						if (strModuleName.CompareNoCase(_T("MSCOREE.dll")) == 0 || strModuleName.CompareNoCase(_T("hostfxr.dll")) == 0) {
-							if ((nIndex == 18 || nIndex < 5)) {
-								if (nIndex < 5)
-									g_pSpaceTelescope->m_nNativeAppType = 20; //CLRApp
-								else
-									g_pSpaceTelescope->m_nNativeAppType = 30; //.NET CoreApp
-								//CloseHandle(hModuleSnap);
-								break;
-							}
-						}
-						if (strModuleName.CompareNoCase(_T("mfc140u.dll")) == 0) {
-							g_pSpaceTelescope->m_nNativeAppType = 1;
+							g_pSpaceTelescope->GetMainWnd(nChildID, _T("MFCAppProxy.dll"));
+							::PostThreadMessage(g_pSpaceTelescope->m_dwThreadID, WM_CHROMEAPPINIT, 0, 0);
 							break;
 						}
-						if (strModuleName.CompareNoCase(_T("mfc140ud.dll")) == 0) {
-							g_pSpaceTelescope->m_nNativeAppType = 2;
-							break;
-						}
-						if (strModuleName.CompareNoCase(_T("AIAgent.dll")) == 0) {
-							//CloseHandle(hModuleSnap);
-							break;
-
-						}
-						//if (strModuleName.CompareNoCase(_T("mfc140u.dll")) == 0 || strModuleName.CompareNoCase(_T("mfc140ud.dll")) == 0) {
-						//	if ((nIndex < 10 || nIndex < 22)) {
-						//		if (nIndex < 10)
-						//			g_pSpaceTelescope->m_nNativeAppType = 1;
-						//		else
-						//			g_pSpaceTelescope->m_nNativeAppType = 2;
-						//		//CloseHandle(hModuleSnap);
-						//		break;
-						//	}
-						//}
-					} while (Module32Next(hModuleSnap, &me32));
-					//  Do not forget to clean up the snapshot object. 
-					CloseHandle(hModuleSnap);
-
-					switch (g_pSpaceTelescope->m_nNativeAppType)
-					{
-					case 20:
-					case 30:
-						::PostMessage(g_pSpaceTelescope->m_hCosmosWnd, WM_COSMOSMSG, 0, 20240221);
-						break;
-					default:
-						g_pSpaceTelescope->GetMainWnd(nChildID, _T("MFCAppProxy.dll"));
 					}
 				}
 				break;
@@ -1870,8 +1843,9 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 				break;
 				case 20240402:
 				{
-					if (g_pSpaceTelescope->m_pUniverseAppProxy->AttachWebRT() && ::PathFileExists(g_pSpaceTelescope->m_strAppName + _T(".app.html"))) {
-						g_pSpaceTelescope->m_strStartupURL = g_pSpaceTelescope->m_strAppName + _T(".app.html");
+					CString strPage = g_pSpaceTelescope->m_strAgentPath + g_pSpaceTelescope->m_strExeName + _T(".app.html");
+					if (g_pSpaceTelescope->m_pUniverseAppProxy->AttachWebRT() && ::PathFileExists(strPage)) {
+						g_pSpaceTelescope->m_strStartupURL = strPage;
 					}
 				}
 				break;
@@ -2196,7 +2170,6 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 												if (pFrameWnd)
 													g_pSpaceTelescope->m_pCreatingFrameWnd = pFrameWnd;
 												CString strUrl = m_Parse.attr(_T("url"), _T(""));
-												//::MessageBox(NULL, strUrl, L"", MB_OK);
 												if (strUrl != _T("")) {
 													if (pFrameWnd && g_pSpaceTelescope->m_pBrowserFactory) {
 														CString str = _T("<host popup='true'><url></url></host>");
@@ -2330,7 +2303,7 @@ LRESULT CALLBACK CUniverse::GetMessageProc(int nCode, WPARAM wParam, LPARAM lPar
 		}
 	}
 
-	return CallNextHookEx(pThreadInfo->m_hGetMessageHook, nCode, wParam, lParam);
+	return CallNextHookEx(hHook, nCode, wParam, lParam);
 }
 
 int CUniverse::Run()
@@ -2341,8 +2314,7 @@ int CUniverse::Run()
 void CUniverse::SetHook(DWORD ThreadID)
 {
 	CommonThreadInfo* pThreadInfo = g_pSpaceTelescope->GetThreadInfo(ThreadID);
-	if (pThreadInfo && pThreadInfo->m_hGetMessageHook == NULL)
-	{
+	if (pThreadInfo && pThreadInfo->m_hGetMessageHook == NULL) {
 		pThreadInfo->m_hGetMessageHook = SetWindowsHookEx(WH_GETMESSAGE, GetMessageProc, NULL, ThreadID);
 	}
 }

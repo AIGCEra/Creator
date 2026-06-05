@@ -1,14 +1,21 @@
 
-#include "chrome/app/chrome_exe_main_win.h"
-
+#include <tchar.h>
 #include <windows.h>
 
 #include <malloc.h>
+#include <msxml6.h>
+#include <softpub.h>
 #include <stddef.h>
-#include <tchar.h>
 
 #include <algorithm>
 #include <array>
+#include <codecvt>
+#include <filesystem>  // For file existence check
+#include <fstream>
+#include <iostream>
+#include <locale>
+#include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -34,6 +41,7 @@
 #include "base/win/win_util.h"
 #include "base/win/windows_version.h"
 #include "build/build_config.h"
+#include "chrome/app/chrome_exe_main_win.h"
 #include "chrome/app/delay_load_failure_hook_win.h"
 #include "chrome/app/exit_code_watcher_win.h"
 #include "chrome/app/main_dll_loader_win.h"
@@ -53,31 +61,6 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/result_codes.h"
 #include "third_party/crashpad/crashpad/util/win/initial_client_data.h"
-
-#include <malloc.h>
-#include <msxml6.h>
-#include <shlobj.h>
-#include <shlwapi.h>
-#include <softpub.h>
-#include <stddef.h>
-#include <tlhelp32.h>
-#include <wincrypt.h>
-
-#include <algorithm>
-#include <array>
-#include <codecvt>
-#include <filesystem>  // For file existence check
-#include <fstream>
-#include <iostream>
-#include <locale>
-#include <set>
-#include <sstream>
-#include <string>
-#include <vector>
-#pragma comment(lib, "msxml6.lib")
-#pragma comment(lib, "shlwapi.lib")
-#pragma comment(lib, "advapi32.lib")
-#pragma comment(lib, "wintrust.lib")
 
 namespace {
 
@@ -159,45 +142,46 @@ bool HasValidWindowsPrefetchArgument(const base::CommandLine& command_line) {
 // See http://crbug.com/581499. Returns true if a compatibility mode entry was
 // removed.
 bool RemoveAppCompatFlagsEntry() {
-    base::FilePath current_exe;
-    if (!base::PathService::Get(base::FILE_EXE, &current_exe))
-        return false;
-    if (!current_exe.IsAbsolute())
-        return false;
-    base::win::RegKey key;
-    if (key.Open(HKEY_CURRENT_USER,
-        L"Software\\Microsoft\\Windows "
-        L"NT\\CurrentVersion\\AppCompatFlags\\Layers",
-        KEY_READ | KEY_WRITE) == ERROR_SUCCESS) {
-        std::wstring layers;
-        if (key.ReadValue(current_exe.value().c_str(), &layers) == ERROR_SUCCESS) {
-            std::vector<std::wstring> tokens = base::SplitString(
-                layers, L" ", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
-            size_t initial_size = tokens.size();
-            static const wchar_t* const kCompatModeTokens[] = {
-                L"WIN95",       L"WIN98",       L"WIN4SP5",  L"WIN2000",  L"WINXPSP2",
-                L"WINXPSP3",    L"VISTARTM",    L"VISTASP1", L"VISTASP2", L"WIN7RTM",
-                L"WINSRV03SP1", L"WINSRV08SP1", L"WIN8RTM",
-            };
-            for (const wchar_t* compat_mode_token : kCompatModeTokens) {
-                std::erase(tokens, compat_mode_token);
-            }
-            LONG result;
-            if (tokens.empty()) {
-                result = key.DeleteValue(current_exe.value().c_str());
-            }
-            else {
-                std::wstring without_compat_mode_tokens =
-                    base::JoinString(tokens, L" ");
-                result = key.WriteValue(current_exe.value().c_str(),
-                    without_compat_mode_tokens.c_str());
-            }
-
-            // Return if we changed anything so that we can restart.
-            return tokens.size() != initial_size && result == ERROR_SUCCESS;
-        }
-    }
+  base::FilePath current_exe;
+  if (!base::PathService::Get(base::FILE_EXE, &current_exe)) {
     return false;
+  }
+  if (!current_exe.IsAbsolute()) {
+    return false;
+  }
+  base::win::RegKey key;
+  if (key.Open(HKEY_CURRENT_USER,
+               L"Software\\Microsoft\\Windows "
+               L"NT\\CurrentVersion\\AppCompatFlags\\Layers",
+               KEY_READ | KEY_WRITE) == ERROR_SUCCESS) {
+    std::wstring layers;
+    if (key.ReadValue(current_exe.value().c_str(), &layers) == ERROR_SUCCESS) {
+      std::vector<std::wstring> tokens = base::SplitString(
+          layers, L" ", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+      size_t initial_size = tokens.size();
+      static const wchar_t* const kCompatModeTokens[] = {
+          L"WIN95",       L"WIN98",       L"WIN4SP5",  L"WIN2000",  L"WINXPSP2",
+          L"WINXPSP3",    L"VISTARTM",    L"VISTASP1", L"VISTASP2", L"WIN7RTM",
+          L"WINSRV03SP1", L"WINSRV08SP1", L"WIN8RTM",
+      };
+      for (const wchar_t* compat_mode_token : kCompatModeTokens) {
+        std::erase(tokens, compat_mode_token);
+      }
+      LONG result;
+      if (tokens.empty()) {
+        result = key.DeleteValue(current_exe.value().c_str());
+      } else {
+        std::wstring without_compat_mode_tokens =
+            base::JoinString(tokens, L" ");
+        result = key.WriteValue(current_exe.value().c_str(),
+                                without_compat_mode_tokens.c_str());
+      }
+
+      // Return if we changed anything so that we can restart.
+      return tokens.size() != initial_size && result == ERROR_SUCCESS;
+    }
+  }
+  return false;
 }
 
 // int RunFallbackCrashHandler(const base::CommandLine& cmd_line) {
@@ -252,54 +236,8 @@ void WINAPI FiberBinder(void* params) {
 
 class CChromiumBrowserAppImpl {
 public:
-    CChromiumBrowserAppImpl() {
-        m_nNativeAppType = -1;
-        m_strAppKey = _T("");
-        m_strExeName = _T("");
-        m_strAppDataPath = _T("");
-        m_strConfigDataFile = _T("");
-    }
+    CChromiumBrowserAppImpl() {}
     ~CChromiumBrowserAppImpl() {}
-
-    int m_nNativeAppType;
-    CString m_strAppKey;
-    CString m_strExeName;
-    CString m_strAppDataPath;
-    CString m_strConfigDataFile;
-
-    // Function to verify digital signature of a file
-    // Returns true if valid digital signature exists
-    bool IsFileDigitallySigned(const wchar_t* filePath) {
-        // Initialize WINTRUST_FILE_INFO structure
-        WINTRUST_FILE_INFO fileInfo = { sizeof(WINTRUST_FILE_INFO) };
-        fileInfo.pcwszFilePath = filePath;  // Path to target file
-        fileInfo.hFile = nullptr;           // Not using handle
-        fileInfo.pgKnownSubject = nullptr;  // No predefined subject
-
-        // Initialize WINTRUST_DATA structure
-        WINTRUST_DATA winTrustData = { sizeof(WINTRUST_DATA) };
-        winTrustData.dwUIChoice = WTD_UI_NONE;  // No UI prompts
-        winTrustData.fdwRevocationChecks =
-            WTD_REVOKE_NONE;                           // Skip revocation checking
-        winTrustData.dwUnionChoice = WTD_CHOICE_FILE;  // Verify file type
-        winTrustData.pFile = &fileInfo;                // File info pointer
-        winTrustData.dwStateAction =
-            WTD_STATEACTION_VERIFY;                 // Perform verification
-        winTrustData.dwProvFlags = WTD_SAFER_FLAG;  // Enable security policy
-
-        // Use standard verification action
-        GUID action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-
-        // Execute signature verification
-        LONG status = WinVerifyTrust(nullptr, &action, &winTrustData);
-
-        // Cleanup verification state
-        winTrustData.dwStateAction = WTD_STATEACTION_CLOSE;
-        WinVerifyTrust(nullptr, &action, &winTrustData);
-
-        // Check verification result
-        return (status == ERROR_SUCCESS);
-    }
 
     // Convert string to lowercase
     std::wstring ToLower(const std::wstring& str) {
@@ -307,6 +245,54 @@ public:
         std::transform(lowerStr.begin(), lowerStr.end(), lowerStr.begin(),
             [](wchar_t c) { return std::towlower(c); });
         return lowerStr;
+    }
+
+    std::wstring BuildCommandLine(
+        const std::wstring& exePath,
+        const std::wstring& startInfoPath)  // 文件绝对路径
+    {
+        std::wostringstream cmd;
+        cmd << L'"' << exePath << L'"';
+        LPWSTR fullCmdLine = GetCommandLineW();
+
+        // 解析父进程命令行参数
+        int argc;
+        LPWSTR* argv = CommandLineToArgvW(fullCmdLine, &argc);
+        if (argv == NULL) {
+            return L"";
+        }
+        std::vector<std::wstring> parentArgs;
+        for (int i = 1; i < argc; ++i) {
+            parentArgs.push_back(argv[i]);
+        }
+        LocalFree(argv);
+
+        // 追加父进程的参数
+        for (const auto& arg : parentArgs) {
+            cmd << L' ';
+            if (arg.find(L' ') != std::wstring::npos ||
+                arg.find(L'\t') != std::wstring::npos) {
+                cmd << L'"' << arg << L'"';
+            }
+            else {
+                cmd << arg;
+            }
+        }
+
+        // 追加 /StartInfo 参数（仅在路径非空时）
+        if (::PathFileExists(startInfoPath.c_str()) &&
+            !::PathIsDirectory(startInfoPath.c_str())) {
+            cmd << L" /StartInfo ";  // 参数名
+            if (startInfoPath.find(L' ') != std::wstring::npos ||
+                startInfoPath.find(L'\t') != std::wstring::npos) {
+                cmd << L"/policy:\"" << startInfoPath << L'"';
+            }
+            else {
+                cmd << L"/policy:" << startInfoPath;
+            }
+        }
+
+        return cmd.str();
     }
 
     // Check if path starts with specified prefix (case-insensitive)
@@ -565,66 +551,6 @@ public:
     typedef BOOL(WINAPI* LPFN_ISWOW64PROCESS)(HANDLE, PBOOL);
     LPFN_ISWOW64PROCESS fnIsWow64Process;
 
-    bool ExtendWinApp(HANDLE hProcess,
-        CString strPath,
-        int nDelaySecond,
-        int nDelaySecond2) {
-        HANDLE hToken = NULL;
-
-        if (OpenProcessToken(hProcess, TOKEN_ADJUST_PRIVILEGES, &hToken)) {
-            TOKEN_PRIVILEGES tp{};
-            tp.PrivilegeCount = 1;
-            // TOKEN_PRIVILEGES originalPriv = {0};
-            DWORD cbNeeded = 0;
-            GetTokenInformation(hToken, TokenPrivileges, NULL, 0, &cbNeeded);
-            std::vector<BYTE> buffer(cbNeeded);
-            GetTokenInformation(hToken, TokenPrivileges, buffer.data(), cbNeeded,
-                &cbNeeded);
-            LookupPrivilegeValue(NULL, SE_DEBUG_NAME, &tp.Privileges[0].Luid);
-            tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-            AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(tp), NULL, NULL);
-            LPVOID pRemoteAddress = VirtualAllocEx(
-                hProcess, NULL, static_cast<SIZE_T>(strPath.GetLength()), MEM_COMMIT,
-                PAGE_READWRITE);
-            if (pRemoteAddress) {
-                HMODULE hModule = GetModuleHandle(L"kernel32.dll");
-                if (hModule) {
-                    WriteProcessMemory(hProcess, pRemoteAddress, strPath,
-                        static_cast<SIZE_T>(strPath.GetLength()) * 2,
-                        NULL);
-                    ::Sleep(nDelaySecond);
-                    LPTHREAD_START_ROUTINE dwLoadAddr =
-                        (LPTHREAD_START_ROUTINE)GetProcAddress(hModule, "LoadLibraryW");
-                    if (!dwLoadAddr) {
-                        printf("GetProcAddress Error !\n");
-                        GetLastError();
-                    }
-                    else {
-                        CreateRemoteThread(hProcess, NULL, 0,
-                            (LPTHREAD_START_ROUTINE)dwLoadAddr,
-                            pRemoteAddress, NULL, NULL);
-                    }
-                }
-                Sleep(nDelaySecond2);
-                AdjustTokenPrivileges(hToken, FALSE, (PTOKEN_PRIVILEGES)buffer.data(),
-                    cbNeeded, NULL, NULL);
-                CloseHandle(hToken);
-                hToken = NULL;
-                if (VirtualFreeEx(hProcess, pRemoteAddress, 0,
-                    /*MEM_DECOMMIT | */ MEM_RELEASE) == false) {
-                    DWORD dw = GetLastError();
-                    CString strInfo = _T("");
-                    strInfo.Format(_T("VirtualFreeEx Free Action failed, ErrorCode:%d"),
-                        dw);
-                    ::MessageBox(NULL, strInfo, _T("Tangram"), MB_OK);
-                    return false;
-                }
-            }
-        }
-
-        return true;
-    }
-
     BOOL IsWow64(HANDLE hProcess) {
         BOOL bIsWow64 = FALSE;
 
@@ -643,298 +569,123 @@ public:
         return bIsWow64;
     }
 
-    bool FindSupportedOSNode(IXMLDOMDocument* pXMLDoc) {
-        HRESULT hr = S_OK;
-        IXMLDOMNodeList* pNodeList = nullptr;
-        IXMLDOMDocument2* pXMLDoc2 = NULL;
-        hr = pXMLDoc->QueryInterface(IID_IXMLDOMDocument2, (void**)&pXMLDoc2);
-        if (FAILED(hr)) {
-            return false;
-        }
-
-        CComVariant namespaces =
-            L"xmlns:ns1='urn:schemas-microsoft-com:asm.v1' "
-            L"xmlns:ns3='urn:schemas-microsoft-com:compatibility.v1'";
-
-        pXMLDoc2->setProperty(CComBSTR(L"SelectionNamespaces"), namespaces);
-
-        CComBSTR xpath =
-            L"/ns1:assembly/ns3:compatibility/ns3:application/ns3:supportedOS"
-            L"[@Id='{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}']";
-
-        if (SUCCEEDED(hr = pXMLDoc2->selectNodes(xpath, &pNodeList))) {
-            long length = 0;
-            pNodeList->get_length(&length);
-            pNodeList->Release();
-
-            if (length > 0) {
-                return true;
-                // pNodeList->get_item(0, &pFoundNode);
-            }
-        }
-        return false;
-    }
-
-    CString GetManifestFromExecutable(CString exePath) {
-        HMODULE hModule = LoadLibraryEx(exePath, NULL, LOAD_LIBRARY_AS_DATAFILE);
-        if (!hModule) {
-            return L"";
-        }
-
-        HRSRC hRes = FindResource(hModule, MAKEINTRESOURCE(1), RT_MANIFEST);
-        if (!hRes) {
-            FreeLibrary(hModule);
-            return L"";
-        }
-
-        HGLOBAL hData = LoadResource(hModule, hRes);
-        if (!hData) {
-            FreeLibrary(hModule);
-            return L"";
-        }
-
-        DWORD size = SizeofResource(hModule, hRes);
-        CString strData = _T("");
-        HGLOBAL hNew = ::GlobalAlloc(GHND, size);
-        if (hNew) {
-            LPBYTE lpByte = (LPBYTE)::GlobalLock(hNew);
-            ::memcpy(lpByte, hData, size);
-            strData = (CString)lpByte;
-            ::GlobalUnlock(hNew);
-            GlobalFree(hNew);
-        }
-
-        if (hData) {
-            ::FreeResource(hData);
-        }
-        FreeLibrary(hModule);
-        return strData;
-    }
-
-    bool IsWindows10Compatible(CString manifest) {
-        CString strID = _T("{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}");
-        if (manifest.Find(strID) == -1) {
-            return false;
-        }
-        HRESULT hr = CoInitialize(NULL);
-        if (FAILED(hr)) {
-            return false;
-        }
-
-        CComPtr<IXMLDOMDocument> pXMLDoc;
-        hr = pXMLDoc.CoCreateInstance(__uuidof(DOMDocument60));
-        if (FAILED(hr)) {
-            // CoUninitialize();
-            return false;
-        }
-
-        VARIANT_BOOL vbSuccess;
-        hr = pXMLDoc->loadXML(CComBSTR(manifest), &vbSuccess);
-        if (FAILED(hr) || (vbSuccess != VARIANT_TRUE)) {
-            return false;
-        }
-        return FindSupportedOSNode(pXMLDoc);
-    }
-
-    int CalculateByteMD5(BYTE* pBuffer, int BufferSize, CString& MD5) {
-        HCRYPTPROV hProv = NULL;
-        DWORD dw = 0;
-        if (CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_FULL, 0)) {
-            HCRYPTHASH hHash;
-            if (CryptCreateHash(hProv, CALG_MD5, 0, 0, &hHash)) {
-                if (CryptHashData(hHash, pBuffer, BufferSize, 0)) {
-                    DWORD dwCount = 16;
-                    unsigned char digest[16];
-                    CryptGetHashParam(hHash, HP_HASHVAL, digest, &dwCount, 0);
-
-                    if (hHash) {
-                        CryptDestroyHash(hHash);
-                    }
-
-                    if (hProv) {
-                        CryptReleaseContext(hProv, 0);
-                    }
-
-                    unsigned char b;
-                    char c;
-                    char* Value = new char[1024];
-                    int k = 0;
-                    for (int i = 0; i < 16; i++) {
-                        b = digest[i];
-                        for (int j = 4; j >= 0; j -= 4) {
-                            c = ((char)(b >> j) & 0x0F);
-                            if (c < 10) {
-                                c += '0';
-                            }
-                            else {
-                                c = ('a' + (c - 10));
-                            }
-                            Value[k] = c;
-                            k++;
-                        }
-                    }
-                    Value[k] = '\0';
-                    MD5 = CString(Value);
-                    delete[] Value;
-                }
-            }
-        }
-        else {
-            dw = GetLastError();
-            if (dw == (DWORD)NTE_BAD_KEYSET) {
-                if (CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_FULL,
-                    CRYPT_NEWKEYSET)) {
-                    _tprintf(TEXT("CryptAcquireContext succeeded.\n"));
-                }
-                else {
-                    _tprintf(TEXT("CryptAcquireContext falied.\n"));
-                }
-            }
-        }
-
-        return 1;
-    }
-
-    CString ComputeHash(CString source) {
-        std::string strSrc = (LPCSTR)CW2A(source, CP_UTF8);
-        int nSrcLen = strSrc.length();
-        CString strRet = _T("");
-        CalculateByteMD5((BYTE*)strSrc.c_str(), nSrcLen, strRet);
-        return strRet;
-    }
-
-    CString GetFileMD5(CString strSRC) {
-        HANDLE hFile = ::CreateFile(strSRC, GENERIC_READ, FILE_SHARE_READ, NULL,
-            OPEN_EXISTING, FILE_FLAG_RANDOM_ACCESS, NULL);
-
-        if (hFile == INVALID_HANDLE_VALUE) {
-            // TRACE(_T("ERROR: CreateFile failed - %s\n"), strSRC);
-            return _T("");
-        }
-        else {
-            DWORD dwFileSizeHigh = 0;
-            __int64 qwFileSize = GetFileSize(hFile, &dwFileSizeHigh);
-            qwFileSize |= (((__int64)dwFileSizeHigh) << 32);
-            DWORD dwFileSize = qwFileSize;
-            if ((dwFileSize == 0) || (dwFileSize == INVALID_FILE_SIZE)) {
-                // TRACE(_T("ERROR: GetFileSize failed - %s\n"), strSRC);
-                CloseHandle(hFile);
-                return _T("");
-            }
-            else {
-                BYTE* buffer = new BYTE[dwFileSize];
-                memset(buffer, 0, (dwFileSize) * sizeof(BYTE));
-                DWORD dwBytesRead = 0;
-                if (!ReadFile(hFile, buffer, dwFileSize, &dwBytesRead, NULL)) {
-                    // TRACE(_T("ERROR: ReadFile failed - %s\n"), strSRC);
-                    CloseHandle(hFile);
-                }
-                else {
-                    CString strRet = _T("");
-                    CalculateByteMD5(buffer, dwFileSize * sizeof(BYTE), strRet);
-                    delete[] buffer;
-                    CloseHandle(hFile);
-                    return strRet;
-                }
-            }
-        }
-
-        return _T("");
-    }
-
-    CString BuildConfigDataFile(CString strExeName,
-        CString strProductName,
-        CString strCompanyPathName) {
-        TCHAR m_szBuffer[MAX_PATH];
-        memset(m_szBuffer, 0, sizeof(m_szBuffer));
-        SHGetFolderPath(NULL, CSIDL_COMMON_APPDATA, NULL, 0, m_szBuffer);
-        CString _strProductName = strProductName;
-        if (strProductName == _T("")) {
-            if (strExeName != _T("")) {
-                _strProductName = strExeName;
-            }
-            else {
-                _strProductName = m_strExeName;
-            }
-        }
-        CString _strCompanyPathName = strCompanyPathName;
-        if (_strCompanyPathName == _T("")) {
-            if (strExeName != _T("")) {
-                _strCompanyPathName = strExeName + _T(" Team");
-            }
-            else {
-                _strCompanyPathName = m_strExeName + _T(" Team");
-            }
-        }
-        _strProductName.MakeLower();
-        _strCompanyPathName.MakeLower();
-        CString _strAppKey = _T("");
-        CString _strAppDataPath = _T("");
-        CString _strConfigDataFile = _T("");
-        _strAppDataPath = m_szBuffer;
-        _strAppDataPath += _T("\\");
-        _strAppDataPath.Replace(_T("\\\\"), _T("\\"));
-        _strAppDataPath += _T("TangramData\\");
-        if (strExeName == _T("")) {
-            _strAppDataPath += m_strExeName;
-        }
-        else {
-            _strAppDataPath += strExeName;
-        }
-        _strAppDataPath += _T("\\");
-        _strAppDataPath.MakeLower();
-        if (!::PathIsDirectory(_strAppDataPath)) {
-            CreateDirectory(_strAppDataPath, NULL);
-        }
-        _strAppKey = ComputeHash(_strAppDataPath + _T("@") + _strCompanyPathName +
-            _T("@") + _strProductName);
-        if (strExeName == _T("")) {
-            m_strAppKey = _strAppKey;
-        }
-        _strAppDataPath += _strAppKey;
-        _strAppDataPath += _T("\\");
-        if (!::PathIsDirectory(_strAppDataPath)) {
-            CreateDirectory(_strAppDataPath, NULL);
-        }
-        if (strExeName == _T("")) {
-            m_strAppDataPath = _strAppDataPath;
-        }
-        _strConfigDataFile = _strAppDataPath;
-        if (strExeName == _T("")) {
-            _strConfigDataFile += m_strExeName;
-        }
-        else {
-            _strConfigDataFile += strExeName;
-        }
-        _strConfigDataFile += _T(".tangram");
-        if (strExeName == _T("")) {
-            m_strConfigDataFile = _strConfigDataFile;
-        }
-        return _strConfigDataFile;
-    }
-
     bool RunHostApp() {
+
+        HWND chrome = NULL;
+        install_static::InitializeFromPrimaryModule();
+        base::FilePath user_data_dir;
+        if (chrome::GetDefaultUserDataDirectory(&user_data_dir)) {
+            policy::path_parser::CheckUserDataDirPolicy(&user_data_dir);
+            chrome = FindRunningChromeWindow(user_data_dir);
+            if (::IsWindow(chrome)) {
+                return false;
+            }
+        }
+
         TCHAR m_szBuffer[MAX_PATH] = { 0 };
         memset(m_szBuffer, 0, sizeof(m_szBuffer));
         ::GetModuleFileName(::GetModuleHandle(NULL), m_szBuffer, MAX_PATH);
-        CString strHostWinAppPath = CString(m_szBuffer);
-        int nPos = strHostWinAppPath.ReverseFind('\\');
-        CString strHostWinApp = strHostWinAppPath.Mid(nPos + 1).MakeLower();
-        if (strHostWinApp.Find(_T("loader.exe")) == -1) {
+        CString strHostWinAppPath = CString(m_szBuffer).MakeLower();
+
+        CString strInitFile = strHostWinAppPath + _T(".policy");
+        if (::PathFileExists(strInitFile) == false)
+            return false;
+
+        HMODULE hModule = NULL;
+        if (g_pSpaceTelescopeImpl == NULL) {
+            hModule = ::GetModuleHandle(L"universe.dll");
+            if (hModule != nullptr) {
+                CommonUniverse::GetWebRTImplFunction GetWebRTImplFunction =
+                    (CommonUniverse::GetWebRTImplFunction)GetProcAddress(
+                        hModule, "GetWebRTImpl");
+                if (GetWebRTImplFunction != NULL) {
+                    IWebRT* pCosmos = nullptr;
+                    g_pSpaceTelescopeImpl = GetWebRTImplFunction(&pCosmos);
+                }
+            }
+        }
+
+        HRESULT hr = S_FALSE;
+        bool bNeedInject = true;
+        int nPos = -1;
+        VARIANT_BOOL vbSuccess;
+        CComPtr<IXMLDOMDocument> _pXMLDoc0;
+        CComPtr<IXMLDOMElement> _pDOMNode;
+        CString strPath2 = _T("");
+        CString strHostWinApp = _T("");
+        CString strProductName = _T("");
+        CString strCompanyPath = _T("");
+        CString strHostWinAppName = _T("");
+
+        hr = _pXMLDoc0.CoCreateInstance(__uuidof(DOMDocument60));
+        if (FAILED(hr)) {
             return false;
         }
+
+        hr = _pXMLDoc0->load(CComVariant(strInitFile), &vbSuccess);
+
+        _pXMLDoc0->get_documentElement(&_pDOMNode);
+        if (_pDOMNode) {
+            CComVariant value3;
+            _pDOMNode->getAttribute(CComBSTR("exepath"), &value3);
+            if (value3.vt == VT_NULL) {
+                return false;
+            }
+            if (value3.vt == VT_BSTR) {
+                strPath2 = OLE2T(value3.bstrVal);
+                if (!::PathFileExists(strPath2) ||
+                    strPath2.CompareNoCase(strHostWinAppPath) == 0) {
+                    return false;
+                }
+                if (::PathFileExists(strPath2 + _T(".deny"))) {
+                    CComPtr<IXMLDOMDocument> _pXMLDocDeny;
+                    CComPtr<IXMLDOMElement> _pDOMNodeDeny;
+                    hr = _pXMLDocDeny.CoCreateInstance(__uuidof(DOMDocument60));
+                    if (FAILED(hr)) {
+                        return false;
+                    }
+
+                    hr = _pXMLDocDeny->load(CComVariant(strPath2 + _T(".deny")),
+                        &vbSuccess);
+                    _pXMLDocDeny->get_documentElement(&_pDOMNodeDeny);
+                    if (_pDOMNodeDeny) {
+                        CComBSTR valueText;
+                        _pDOMNodeDeny->get_text(&valueText);
+                        CString strDenyText = OLE2T(valueText);
+                        ::MessageBox(NULL, strDenyText, strPath2, MB_OK);
+                        return false;
+                    }
+                }
+
+                nPos = strPath2.ReverseFind('\\');
+                strHostWinApp = strPath2.Mid(nPos + 1);
+
+                strHostWinAppName = strHostWinApp;
+                strHostWinAppName.Replace(_T(".exe"), _T(""));
+
+                CComVariant value;
+                _pDOMNode->getAttribute(CComBSTR("productname"), &value);
+                if (value.vt == VT_BSTR) {
+                    strProductName = OLE2T(value.bstrVal);
+                }
+                CComVariant value2;
+                _pDOMNode->getAttribute(CComBSTR("companyname"), &value2);
+                if (value2.vt == VT_BSTR) {
+                    strCompanyPath = OLE2T(value2.bstrVal);
+                }
+            }
+        }
+
         CString strExes =
             _T(",msedge,firefox,chrome,sogouexplorer,ucbrowser,360se,360chrome,")
             _T("qqbrowser,safari,iexplore,vivaldi,brave,opera,electron,vscode,")
             _T("msword,excel,powerpnt,outlook,wechat,qq,");
-        strHostWinApp.Replace(_T("loader.exe"), _T(".exe"));
-        CString strHostWinAppName = strHostWinApp;
-        strHostWinAppName.Replace(_T(".exe"), _T(""));
+
         CString str = _T(",") + strHostWinAppName + _T(",");
         if (strExes.Find(str) != -1) {
             ::MessageBox(NULL,
-                L"CreatorProxy is not support this Desktop Application", str,
-                MB_OK);
+                L"CreatorLoader is not support this Desktop Application",
+                str, MB_OK);
         }
 
         auto allPaths = GetAllSystemPaths();
@@ -943,398 +694,143 @@ public:
             return false;
         }
 
-        CString strPath2 = strHostWinAppPath.Left(nPos + 1) + strHostWinApp;
         if (::PathFileExists(strPath2)) {
-            CString strHostWinAppTangram = strHostWinApp;
-            CString strHostWinAppTangram2 = strHostWinApp;
-            CString strHostWinAppWebPage = strHostWinApp;
-            strHostWinAppTangram.Replace(_T(".exe"), _T(".exe.tangram"));
-            strHostWinAppTangram2.Replace(_T(".exe"), _T("loader.exe.tangram"));
-            strHostWinAppWebPage.Replace(_T(".exe"), _T(".app.html"));
-            CString strInitFile =
-                strHostWinAppPath.Left(nPos + 1) + strHostWinAppTangram;
-            CString strInitFile2 =
-                strHostWinAppPath.Left(nPos + 1) + strHostWinAppTangram2;
-            CString g_strCreatorPath = _T("");
-            CString g_strUniverseFilePath = _T("");
-            CString g_strChromeRTFilePath = _T("");
+            strPath2.MakeLower();
 
-            CString g_strCfgDataFile = BuildConfigDataFile(
-                _T("aigcbrowser"), _T("aigcbrowser"), _T("Tangram Team"));
-            if (::PathFileExists(g_strCfgDataFile)) {
-                CString strData = _T("");
-                std::wifstream fin(g_strCfgDataFile, std::wifstream::binary);
-                std::wstringstream stream;
-                stream << fin.rdbuf();
-                strData = stream.str().c_str();
-                fin.close();
+            HANDLE _hToken = NULL;
+            OpenProcessToken(::GetCurrentProcess(), TOKEN_ALL_ACCESS, &_hToken);
+            HANDLE hTokenDup = NULL;
+            DuplicateTokenEx(_hToken, TOKEN_ALL_ACCESS, NULL, SecurityIdentification,
+                TokenPrimary, &hTokenDup);
+            STARTUPINFO startupInfo{};
+            SECURITY_ATTRIBUTES
+                saProcess{}, saThread{};
+            PROCESS_INFORMATION process_info{};
+            ZeroMemory(&startupInfo, sizeof(STARTUPINFO));
+            ZeroMemory(&saThread, sizeof(SECURITY_ATTRIBUTES));
+            ZeroMemory(&saProcess, sizeof(SECURITY_ATTRIBUTES));
+            ZeroMemory(&process_info, sizeof(PROCESS_INFORMATION));
+            CString strID = _T("WinSta0\\Default");
+            startupInfo.lpDesktop = strID.GetBuffer();
+            strID.ReleaseBuffer();
+            startupInfo.cb = sizeof(STARTUPINFO);
+            startupInfo.dwFlags =
+                STARTF_USESHOWWINDOW | STARTF_FORCEONFEEDBACK /*|STARTF_USEPOSITION*/;
+            startupInfo.wShowWindow = SW_SHOWNORMAL;
+            saProcess.nLength = sizeof(saProcess);
+            saProcess.lpSecurityDescriptor = NULL;
+            saProcess.bInheritHandle = true;
+            saThread.nLength = sizeof(saThread);
+            saThread.lpSecurityDescriptor = NULL;
+            saThread.bInheritHandle = false;
+            DWORD deCreateFlag = NORMAL_PRIORITY_CLASS;
 
-                nPos = strData.Find(_T("Universe"));
-                if (nPos != -1) {
-                    CString strTemp = strData.Mid(nPos + 8);
-                    nPos = strTemp.Find(_T(".dll"));
-                    strTemp = strTemp.Left(nPos + 4);
-                    nPos = strTemp.Find(_T(":"));
-                    g_strUniverseFilePath = strTemp.Mid(nPos - 1);
-                    if (::PathFileExists(g_strUniverseFilePath) == false) {
-                        if (SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0,
-                            m_szBuffer) == S_OK) {
-                            g_strUniverseFilePath = CString(m_szBuffer);
-                            g_strUniverseFilePath +=
-                                _T("\\Tangram\\Creator\\universe.dll");
-                            if (::PathFileExists(g_strUniverseFilePath) == false) {
-                                g_strUniverseFilePath = _T("");
-                            }
-                        }
-                    }
-                }
-                nPos = strData.Find(_T("AIAgent"));
-                if (nPos != -1) {
-                    CString strTemp = strData.Mid(nPos + 9);
-                    nPos = strTemp.Find(_T(".dll"));
-                    strTemp = strTemp.Left(nPos + 4);
-                    nPos = strTemp.Find(_T(":"));
-                    g_strChromeRTFilePath = strTemp.Mid(nPos - 1);
-                    if (::PathFileExists(g_strChromeRTFilePath) == false) {
-                        // TCHAR m_szBuffer[MAX_PATH];
-                        if (SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0,
-                            m_szBuffer) == S_OK) {
-                            g_strChromeRTFilePath = CString(m_szBuffer);
-                            g_strChromeRTFilePath +=
-                                _T("\\Tangram\\Creator\\AIAgent.dll");
-                            if (::PathFileExists(g_strChromeRTFilePath) == false) {
-                                g_strChromeRTFilePath = _T("");
-                            }
-                        }
-                    }
+            std::wstring cmdLine =
+                BuildCommandLine(LPCTSTR(strPath2), strInitFile.GetString());
+
+            bool bNewProcess = CreateProcessAsUser(
+                hTokenDup, strPath2, &cmdLine[0], &saProcess, &saThread, TRUE,
+                deCreateFlag, NULL, NULL, &startupInfo, &process_info);
+            if (bNewProcess == false)
+                return false;
+
+            CComVariant value4;
+            _pDOMNode->getAttribute(CComBSTR("inject"), &value4);
+            if (value4.vt == VT_BSTR) {
+                CString strInject = OLE2T(value4.bstrVal);
+                if (strInject.CompareNoCase(_T("false")) == 0) {
+                    bNeedInject = false;
                 }
             }
-            else {
-                if (SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0, m_szBuffer) ==
-                    S_OK) {
-                    g_strUniverseFilePath = CString(m_szBuffer);
-                    g_strUniverseFilePath += _T("\\Tangram\\Creator\\universe.dll");
-                    g_strChromeRTFilePath = CString(m_szBuffer);
-                    g_strChromeRTFilePath += _T("\\Tangram\\Creator\\AIAgent.dll");
-                    if (::PathFileExists(g_strUniverseFilePath) == false) {
-                        g_strUniverseFilePath = _T("");
-                    }
-                    if (::PathFileExists(g_strChromeRTFilePath) == false) {
-                        g_strChromeRTFilePath = _T("");
-                    }
-                }
-            }
-            CString strWinAppProxy = _T("");
-            if (g_strChromeRTFilePath != _T("")) {
-                nPos = g_strChromeRTFilePath.ReverseFind('\\');
-                g_strCreatorPath = g_strChromeRTFilePath.Left(nPos + 1);
-                strWinAppProxy = g_strCreatorPath + _T("WebRTHelper.dll");
-                if (!::PathFileExists(strWinAppProxy)) {
-                    strWinAppProxy = _T("");
-                    return false;
-                }
-            }
-            CString manifest = GetManifestFromExecutable(strPath2);
-            if (!IsWindows10Compatible(manifest)) {
-                if (IsFileDigitallySigned(strPath2)) {
-                    ::MessageBox(NULL,
-                        L"The Current Desktop App is Digitally Signed, cannt "
-                        L"not add Windows10Compatible!",
+
+            if (bNeedInject == true && process_info.hProcess) {
+                if (IsWow64(process_info.hProcess)) {
+                    ::MessageBox(
+                        NULL, L"CreatorLoader is not support 32-bit Desktop Application",
                         L"CreatorLoader", MB_OK);
                     return false;
                 }
-                CString strPath = g_strCreatorPath + _T("AIGCSDK\\mt.exe");
-                CString cmd = _T(" -nologo -manifest \"");
-                cmd += g_strCreatorPath + _T("AIGCSDK\\");
-                cmd += (manifest == L"") ? _T("aigc2.manifest\" -outputresource:\"")
-                    : _T("aigc2.manifest\" -updateresource:\"");
-                cmd += strPath2 + _T("\"");
-                DWORD dwExitCode = ERROR_NOT_SUPPORTED;
-
-                Sleep(1000);
-                STARTUPINFO si;
-                // DWORD  dwExitCode = ERROR_NOT_SUPPORTED;
-                SECURITY_ATTRIBUTES saProcess{}, saThread{};
-                PROCESS_INFORMATION process_info;
-
-                ZeroMemory(&si, sizeof(si));
-                si.cb = sizeof(si);
-
-                saProcess.nLength = sizeof(saProcess);
-                saProcess.lpSecurityDescriptor = NULL;
-                saProcess.bInheritHandle = true;
-
-                saThread.nLength = sizeof(saThread);
-                saThread.lpSecurityDescriptor = NULL;
-                saThread.bInheritHandle = false;
-
-                CString currentDirectory = _T("");
-
-                bool bReturnVal =
-                    CreateProcess(strPath, (LPTSTR)(LPCTSTR)cmd,
-                        NULL,   // Process handle not inheritable
-                        NULL,   // Thread handle not inheritable
-                        FALSE,  // Set handle inheritance to FALSE
-                        CREATE_NO_WINDOW,
-                        NULL,  // Use parent's environment block
-                        NULL,  // Use parent's starting directory
-                        &si,   // Pointer to STARTUPINFO structure
-                        &process_info);
-
-                if (bReturnVal) {
-                    CloseHandle(process_info.hThread);
-                    WaitForSingleObject(process_info.hProcess, INFINITE);
-                    GetExitCodeProcess(process_info.hProcess, &dwExitCode);
-                    CloseHandle(process_info.hProcess);
-                }
-                Sleep(1000);
-            }
-            //::MessageBox(NULL, L"", L"", MB_OK);
-            CString strProductName = strHostWinAppName.MakeLower();
-            CString strCompanyPath = strProductName + _T(" Team");
-            CString xml = _T("");
-            xml.Format(_T("<%s companypathname='%s' productname='%s'/>"),
-                LPCTSTR(strProductName), LPCTSTR(strCompanyPath),
-                LPCTSTR(strProductName));
-            VARIANT_BOOL vbSuccess;
-            HRESULT hr = S_OK;
-            if (!::PathFileExists(strInitFile)) {
-                CComPtr<IXMLDOMDocument> pXMLDoc4;
-                hr = pXMLDoc4.CoCreateInstance(__uuidof(DOMDocument60));
-                if (FAILED(hr)) {
-                    // CoUninitialize();
-                    return false;
-                }
-                hr = pXMLDoc4->load(CComVariant(xml), &vbSuccess);
-                if (FAILED(hr)) {
-                    return false;
-                }
-
-                pXMLDoc4->save(CComVariant(strInitFile));
-            }
-            if (::PathFileExists(strInitFile)) {
-                CComPtr<IXMLDOMDocument> pXMLDoc;
-                hr = pXMLDoc.CoCreateInstance(__uuidof(DOMDocument60));
-                if (FAILED(hr)) {
-                    return false;
-                }
-
-                bool bExists = true;
-                hr = pXMLDoc->load(CComVariant(strInitFile), &vbSuccess);
-                if (FAILED(hr) || (vbSuccess != VARIANT_TRUE)) {
-                    bExists = false;
-                    hr = pXMLDoc->loadXML(CComBSTR(xml), &vbSuccess);
-                    if (FAILED(hr) || (vbSuccess != VARIANT_TRUE)) {
-                        return false;
-                    }
-                    pXMLDoc->save(CComVariant(strInitFile));
-                }
-                CComPtr<IXMLDOMElement> pDOMNode;
-
-                pXMLDoc->get_documentElement(&pDOMNode);
-                if (pDOMNode) {
-                    if (bExists) {
-                        CComVariant value;
-                        pDOMNode->getAttribute(CComBSTR("productname"), &value);
-                        if (value.vt == VT_BSTR) {
-                            strProductName = OLE2T(value.bstrVal);
-                            if (strProductName == _T("")) {
-                                strProductName = strHostWinAppName;
-                            }
-                        }
-                        CComVariant value2;
-                        pDOMNode->getAttribute(CComBSTR("companypathname"), &value2);
-                        if (value2.vt == VT_BSTR) {
-                            strCompanyPath = OLE2T(value2.bstrVal);
-                            if (strCompanyPath == _T("")) {
-                                strCompanyPath = strHostWinAppName + _T(" team");
-                            }
-                        }
-                    }
-                    else {
-                        bExists = true;
-                        pDOMNode->setAttribute(CComBSTR("productname"),
-                            CComVariant(strProductName));
-                        pDOMNode->setAttribute(CComBSTR("companypathname"),
-                            CComVariant(strCompanyPath));
-                    }
-                }
-                HWND hCosmosWnd = NULL;
-                DWORD nDelaySecond = 500;
-                DWORD nDelaySecond2 = 1000;
-                CComPtr<IXMLDOMElement> pDOMNode2;
-                CComPtr<IXMLDOMDocument> pXMLDoc2;
-
-                CString _strCfgDataFile = BuildConfigDataFile(
-                    strHostWinAppName, strProductName, strCompanyPath);
-                hr = pXMLDoc2.CoCreateInstance(__uuidof(DOMDocument60));
-                if (FAILED(hr)) {
-                    // CoUninitialize();
-                    return false;
-                }
-
-                hr = pXMLDoc2->load(CComVariant(_strCfgDataFile), &vbSuccess);
-                if (FAILED(hr) || (vbSuccess != VARIANT_TRUE)) {
-                    bExists = false;
-                    hr = pXMLDoc2->loadXML(CComBSTR(xml), &vbSuccess);
-                    if (FAILED(hr) || (vbSuccess != VARIANT_TRUE)) {
-                        return false;
-                    }
-                    pXMLDoc2->save(CComVariant(_strCfgDataFile));
-                }
-                if (!::PathFileExists(strHostWinAppWebPage)) {
-                    CComPtr<IXMLDOMDocument> pXMLDoc3;
-                    hr = pXMLDoc3.CoCreateInstance(__uuidof(DOMDocument60));
-                    if (FAILED(hr)) {
-                        // CoUninitialize();
-                        return false;
-                    }
-                    hr = pXMLDoc3->load(CComVariant("<html></html>"), &vbSuccess);
-                    if (FAILED(hr)) {
-                        // CoUninitialize();
-                        return false;
-                    }
-                    pXMLDoc3->save(CComVariant(strHostWinAppWebPage));
-                }
-                if (::PathFileExists(_strCfgDataFile)) {
-                    pXMLDoc2->get_documentElement(&pDOMNode2);
-                    if (pDOMNode2) {
-                        if (bExists == false) {
-                            pDOMNode2->setAttribute(CComBSTR("productname"),
-                                CComVariant(strProductName));
-                            pDOMNode2->setAttribute(CComBSTR("companypathname"),
-                                CComVariant(strCompanyPath));
-                            pDOMNode2->setAttribute(CComBSTR("webrtpath"),
-                                CComVariant(g_strUniverseFilePath));
-                        }
-                        CComVariant val(VT_EMPTY);
-                        pDOMNode2->getAttribute(CComBSTR("cosmoswindowhandle"), &val);
-                        if (val.vt == VT_BSTR) {
-                            CString strRet = OLE2T(val.bstrVal);
-                            hCosmosWnd = (HWND)_wtoll(strRet);
-                        }
-                    }
-                    if (!::IsWindow(hCosmosWnd)) {
-                        HANDLE _hToken = NULL;
-                        OpenProcessToken(::GetCurrentProcess(), TOKEN_ALL_ACCESS, &_hToken);
-                        HANDLE hTokenDup = NULL;
-                        DuplicateTokenEx(_hToken, TOKEN_ALL_ACCESS, NULL,
-                            SecurityIdentification, TokenPrimary, &hTokenDup);
-                        STARTUPINFO startupInfo{};
-                        SECURITY_ATTRIBUTES
-                            saProcess{}, saThread{};
-                        PROCESS_INFORMATION process_info{};
-                        ZeroMemory(&startupInfo, sizeof(STARTUPINFO));
-                        ZeroMemory(&saThread, sizeof(SECURITY_ATTRIBUTES));
-                        ZeroMemory(&saProcess, sizeof(SECURITY_ATTRIBUTES));
-                        ZeroMemory(&process_info, sizeof(PROCESS_INFORMATION));
-                        CString strID = _T("WinSta0\\Default");
-                        startupInfo.lpDesktop = strID.GetBuffer();
-                        strID.ReleaseBuffer();
-                        startupInfo.cb = sizeof(STARTUPINFO);
-                        startupInfo.dwFlags =
-                            STARTF_USESHOWWINDOW |
-                            STARTF_FORCEONFEEDBACK /*|STARTF_USEPOSITION*/;
-                        startupInfo.wShowWindow = SW_SHOWNORMAL;
-                        saProcess.nLength = sizeof(saProcess);
-                        saProcess.lpSecurityDescriptor = NULL;
-                        saProcess.bInheritHandle = true;
-                        saThread.nLength = sizeof(saThread);
-                        saThread.lpSecurityDescriptor = NULL;
-                        saThread.bInheritHandle = false;
-                        DWORD deCreateFlag = NORMAL_PRIORITY_CLASS;
-                        CreateProcessAsUser(hTokenDup, strPath2, NULL, &saProcess,
-                            &saThread, TRUE, deCreateFlag, NULL, NULL,
-                            &startupInfo, &process_info);
-                        if (process_info.hProcess) {
-                            if (IsWow64(process_info.hProcess)) {
-                                ::MessageBox(
-                                    NULL,
-                                    L"CreatorLoader is not support 32-bit Desktop Application",
-                                    L"CreatorLoader", MB_OK);
-                                return false;
-                            }
-                            if (pDOMNode2) {
-                                pDOMNode2->setAttribute(
-                                    CComBSTR("mainThreadID"),
-                                    CComVariant((_int64)process_info.dwThreadId));
-                                pXMLDoc2->save(CComVariant(_strCfgDataFile));
-                            }
-
-                            HANDLE hModuleSnap = INVALID_HANDLE_VALUE;
-                            MODULEENTRY32 me32{};
-
-                            //  Take a snapshot of all modules in the specified process.
-                            hModuleSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE,
-                                ::GetCurrentProcessId());
-
-                            //  Set the size of the structure before using it.
-                            me32.dwSize = sizeof(MODULEENTRY32);
-
-                            //  Retrieve information about the first module,
-                            //  and exit if unsuccessful
-                            if (!Module32First(hModuleSnap, &me32)) {
-                                CloseHandle(hModuleSnap);  // Must clean up the snapshot object!
-                            }
-
-                            int nIndex = 0;
-                            //  Now walk the module list of the process,
-                            do {
-                                CString strModuleName = me32.szModule;
-                                // CString strMessage = _T("");
-                                // strMessage.Format(_T("Module Index: %d, Module Name: %s\n"),
-                                // nIndex++, strModuleName); OutputDebugString(strMessage);
-                                if (strModuleName.CompareNoCase(_T("MSCOREE.dll")) == 0 ||
-                                    strModuleName.CompareNoCase(_T("hostfxr.dll")) == 0) {
-                                    if ((nIndex == 18 || nIndex < 5)) {
-                                        if (nIndex < 5) {
-                                            m_nNativeAppType = 20;  // CLRApp
-                                        }
-                                        else {
-                                            m_nNativeAppType = 30;  //.NET CoreApp
-                                        }
-                                        // CloseHandle(hModuleSnap);
-                                        break;
-                                    }
-                                }
-                                if (strModuleName.CompareNoCase(_T("mfc140u.dll")) == 0 ||
-                                    strModuleName.CompareNoCase(_T("mfc140du.dll")) == 0) {
-                                    if ((nIndex < 10 || nIndex < 22)) {
-                                        if (nIndex < 10) {
-                                            m_nNativeAppType = 1;
-                                        }
-                                        else {
-                                            m_nNativeAppType = 2;
-                                        }
-                                        // CloseHandle(hModuleSnap);
-                                        break;
-                                    }
-                                }
-                                if (strModuleName.CompareNoCase(_T("AIAgent.dll")) == 0) {
-                                    // CloseHandle(hModuleSnap);
-                                    break;
-                                }
-                            } while (Module32Next(hModuleSnap, &me32));
-                            //  Do not forget to clean up the snapshot object.
-                            CloseHandle(hModuleSnap);
-                            ExtendWinApp(process_info.hProcess, strWinAppProxy, nDelaySecond,
-                                nDelaySecond2);
-                        }
-                    }
-                    else {
+                CString strWinAppProxy = _T("");
+                if (SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0, m_szBuffer) ==
+                    S_OK) {
+                    strWinAppProxy = CString(m_szBuffer);
+                    strWinAppProxy += _T("\\Tangram\\Creator\\universe.dll");
+                    //strWinAppProxy += _T("\\Tangram\\Creator\\WebRTHelper.dll");
+                    if (::PathFileExists(strWinAppProxy) == false) {
                         return false;
                     }
                 }
-                // CoUninitialize();
+
+                HANDLE hToken = NULL;
+                HANDLE hRemoteThread = NULL;
+
+                if (OpenProcessToken(process_info.hProcess, TOKEN_ADJUST_PRIVILEGES,
+                    &hToken)) {
+                    TOKEN_PRIVILEGES tp{};
+                    tp.PrivilegeCount = 1;
+                    // TOKEN_PRIVILEGES originalPriv = {0};
+                    DWORD cbNeeded = 0;
+                    GetTokenInformation(hToken, TokenPrivileges, NULL, 0, &cbNeeded);
+                    std::vector<BYTE> buffer(cbNeeded);
+                    GetTokenInformation(hToken, TokenPrivileges, buffer.data(), cbNeeded,
+                        &cbNeeded);
+                    LookupPrivilegeValue(NULL, SE_DEBUG_NAME, &tp.Privileges[0].Luid);
+                    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+                    AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(tp), NULL, NULL);
+                    LPVOID pRemoteAddress =
+                        VirtualAllocEx(process_info.hProcess, NULL,
+                            static_cast<SIZE_T>(strWinAppProxy.GetLength()),
+                            MEM_COMMIT, PAGE_READWRITE);
+                    if (pRemoteAddress) {
+                        hModule = GetModuleHandle(L"kernel32.dll");
+                        if (hModule) {
+                            WriteProcessMemory(
+                                process_info.hProcess, pRemoteAddress, strWinAppProxy,
+                                static_cast<SIZE_T>(strWinAppProxy.GetLength()) * 2, NULL);
+
+                            LPTHREAD_START_ROUTINE dwLoadAddr =
+                                (LPTHREAD_START_ROUTINE)GetProcAddress(hModule,
+                                    "LoadLibraryW");
+                            if (!dwLoadAddr) {
+                                printf("GetProcAddress Error !\n");
+                                GetLastError();
+                            }
+                            else {
+                                ::Sleep(500);
+                                hRemoteThread =
+                                    CreateRemoteThread(process_info.hProcess, NULL, 0,
+                                        (LPTHREAD_START_ROUTINE)dwLoadAddr,
+                                        pRemoteAddress, NULL, NULL);
+                            }
+                        }
+                        WaitForSingleObject(hRemoteThread, INFINITE);
+                        ::Sleep(500);
+                        AdjustTokenPrivileges(hToken, FALSE,
+                            (PTOKEN_PRIVILEGES)buffer.data(), cbNeeded,
+                            NULL, NULL);
+                        CloseHandle(hToken);
+                        hToken = NULL;
+                        if (VirtualFreeEx(process_info.hProcess, pRemoteAddress, 0,
+                            /*MEM_DECOMMIT | */ MEM_RELEASE) == false) {
+                            DWORD dw = GetLastError();
+                            CString strInfo = _T("");
+                            strInfo.Format(
+                                _T("VirtualFreeEx Free Action failed, ErrorCode:%d"), dw);
+                            ::MessageBox(NULL, strInfo, _T("Tangram Loader"), MB_OK);
+                            return false;
+                        }
+                    }
+                }
             }
         }
+
         return true;
     }
 };
 
 __declspec(dllexport) bool __stdcall IsBindWinApp() {
-    CChromiumBrowserAppImpl m_Impl;
-    return m_Impl.RunHostApp();
+  CChromiumBrowserAppImpl m_Impl;
+  return m_Impl.RunHostApp();
 }
 
 __declspec(dllexport) int __stdcall InitApp(bool bSupportCrashReporting) {
@@ -1353,8 +849,24 @@ __declspec(dllexport) int __stdcall InitApp(bool bSupportCrashReporting) {
 
   // Initialize the CommandLine singleton from the environment.
   base::CommandLine::Init(0, nullptr);
-  const base::CommandLine* command_line =
-      base::CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+
+  CString _strCmdLine = _T("");
+  HMODULE hModule = ::GetModuleHandle(L"universe.dll");
+  if (hModule != nullptr) {
+    CommonUniverse::GetWebRTImplFunction GetWebRTImplFunction =
+        (CommonUniverse::GetWebRTImplFunction)GetProcAddress(hModule,
+                                                             "GetWebRTImpl");
+    if (GetWebRTImplFunction != NULL) {
+      IWebRT* pCosmos = nullptr;
+      g_pSpaceTelescopeImpl = GetWebRTImplFunction(&pCosmos);
+    }
+    _strCmdLine = g_pSpaceTelescopeImpl->GetCreatorData(_T("CmdLine"));
+    if (_strCmdLine != _T("")) {
+      command_line->AppendArguments(
+          base::CommandLine::FromString(LPCTSTR(_strCmdLine)), false);
+    }
+  }
 
   const std::string process_type =
       command_line->GetSwitchValueASCII(switches::kProcessType);
@@ -1444,15 +956,7 @@ __declspec(dllexport) int __stdcall InitApp(bool bSupportCrashReporting) {
   // Load and launch the chrome dll. *Everything* happens inside.
   VLOG(1) << "About to load main DLL.";
 
-  HMODULE hModule = ::GetModuleHandle(L"universe.dll");
-  if (hModule != nullptr) {
-    CommonUniverse::GetWebRTImplFunction GetWebRTImplFunction =
-        (CommonUniverse::GetWebRTImplFunction)GetProcAddress(hModule,
-                                                             "GetWebRTImpl");
-    if (GetWebRTImplFunction != NULL) {
-      IWebRT* pCosmos = nullptr;
-      g_pSpaceTelescopeImpl = GetWebRTImplFunction(&pCosmos);
-    }
+  if (g_pSpaceTelescopeImpl) {
     CommonUniverse::CWebRTMainDllLoader* pLoader =
         (CommonUniverse::CWebRTMainDllLoader*)MakeMainDllLoader();
     if (pLoader) {
@@ -1494,8 +998,24 @@ __declspec(dllexport) int __stdcall InitApp2(bool bSupportCrashReporting) {
 
   // Initialize the CommandLine singleton from the environment.
   base::CommandLine::Init(0, nullptr);
-  const base::CommandLine* command_line =
-      base::CommandLine::ForCurrentProcess();
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+
+  CString _strCmdLine = _T("");
+  HMODULE hModule = ::GetModuleHandle(L"universe.dll");
+  if (hModule != nullptr) {
+    CommonUniverse::GetWebRTImplFunction GetWebRTImplFunction =
+        (CommonUniverse::GetWebRTImplFunction)GetProcAddress(hModule,
+                                                             "GetWebRTImpl");
+    if (GetWebRTImplFunction != NULL) {
+      IWebRT* pCosmos = nullptr;
+      g_pSpaceTelescopeImpl = GetWebRTImplFunction(&pCosmos);
+    }
+    _strCmdLine = g_pSpaceTelescopeImpl->GetCreatorData(_T("CmdLine"));
+    if (_strCmdLine != _T("")) {
+      command_line->AppendArguments(
+          base::CommandLine::FromString(LPCTSTR(_strCmdLine)), false);
+    }
+  }
 
   const std::string process_type =
       command_line->GetSwitchValueASCII(switches::kProcessType);
@@ -1530,15 +1050,7 @@ __declspec(dllexport) int __stdcall InitApp2(bool bSupportCrashReporting) {
   // Load and launch the chrome dll. *Everything* happens inside.
   VLOG(1) << "About to load main DLL.";
 
-  HMODULE hModule = ::GetModuleHandle(L"universe.dll");
-  if (hModule != nullptr) {
-    CommonUniverse::GetWebRTImplFunction GetWebRTImplFunction =
-        (CommonUniverse::GetWebRTImplFunction)GetProcAddress(hModule,
-                                                             "GetWebRTImpl");
-    if (GetWebRTImplFunction != NULL) {
-      IWebRT* pCosmos = nullptr;
-      g_pSpaceTelescopeImpl = GetWebRTImplFunction(&pCosmos);
-    }
+  if (g_pSpaceTelescopeImpl) {
     CommonUniverse::CWebRTMainDllLoader* pLoader =
         (CommonUniverse::CWebRTMainDllLoader*)MakeMainDllLoader();
     if (pLoader) {

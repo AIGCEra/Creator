@@ -905,11 +905,18 @@ BOOL CXobj::Create(DWORD dwStyle, const RECT& rect, CWnd* pParentWnd, UINT nID, 
 				}
 				else
 				{
-					CString strPath = g_pSpaceTelescope->m_strAppPath;
 					nPos = strKey.Find(_T("."));
 					CString strAppName = strKey.Left(nPos);
+					CString strdll = g_pSpaceTelescopeImpl->GetFileByName(g_pSpaceTelescopeImpl->m_strAgentPath + strKey, strAppName + _T(".dll"));
+					if (::PathFileExists(strdll) == false) {
+						strdll = g_pSpaceTelescopeImpl->GetFileByName(g_pSpaceTelescopeImpl->m_strAppPath + strKey, strAppName + _T(".dll"));
+					}
+
+					if (!g_pSpaceTelescope->VerfyEVSHASign(strdll)) {
+						strdll = _T("");
+					}
+
 					HMODULE hHandle = nullptr;
-					CString strdll = strPath + strKey + _T("\\") + strAppName + _T(".dll");
 					if (::PathFileExists(strdll))
 						hHandle = ::LoadLibrary(strdll);
 					if (hHandle)
@@ -979,30 +986,21 @@ BOOL CXobj::Create(DWORD dwStyle, const RECT& rect, CWnd* pParentWnd, UINT nID, 
 							}
 							if (pViewFactoryDisp == nullptr)
 							{
-								CString strLib = g_pSpaceTelescope->m_strAppPath + m_strObjTypeID + _T(".dll");
-								if (!::PathFileExists(strLib))
-								{
-									strLib = g_pSpaceTelescope->m_strAppPath + _T("wincomponent\\") + m_strObjTypeID + _T(".dll");
-									if (!::PathFileExists(strLib)) {
-										strLib = g_pSpaceTelescope->m_strProgramFilePath + _T("\\tangram\\wincomponent\\") + m_strObjTypeID + _T(".dll");
-										if (!::PathFileExists(strLib))
-											strLib = g_pSpaceTelescope->m_strAppPath + _T("PublicAssemblies\\wincomponent\\") + m_strObjTypeID + _T(".dll");
-									}
+								CString strLibName = m_strObjTypeID + _T(".dll");
+								CString strLib = g_pSpaceTelescope->GetFileByName(g_pSpaceTelescope->m_strAgentPath, strLibName);
+								if (::PathFileExists(strLib) == false) {
+									strLib = g_pSpaceTelescope->GetFileByName(g_pSpaceTelescope->m_strAppPath, strLibName);
 								}
-								if (!::PathFileExists(strLib))
-								{
-									strLib = g_pSpaceTelescope->m_strWebRTPath + _T("wincomponent\\") + m_strObjTypeID + _T(".dll");;
+								if (::PathFileExists(strLib) == false) {
+									strLib = g_pSpaceTelescope->GetFileByName(g_pSpaceTelescope->m_strWebRTPath + _T("wincomponent\\"), strLibName);
 								}
-								bool bCheckEVSignaturesAndSHA = false;
-								if (g_pSpaceTelescope->m_bEnableAllDllInject == false) {
-									bCheckEVSignaturesAndSHA = g_pSpaceTelescope->VerfyEVSHASign(strLib);
-									if (!bCheckEVSignaturesAndSHA) {
-										m_strObjTypeID = _T("");
-									}
+
+								if (!g_pSpaceTelescope->VerfyEVSHASign(strLib)) {
+									m_strObjTypeID = _T("");
 								}
-								if (m_strObjTypeID != _T("") &&::PathFileExists(strLib))
+								if (m_strObjTypeID != _T("") && ::PathFileExists(strLib))
 								{
-									if ( ::LoadLibrary(strLib)) {
+									if (::LoadLibrary(strLib)) {
 										auto it = g_pSpaceTelescope->m_mapWindowProvider.find(m_strObjTypeID);
 										if (it != g_pSpaceTelescope->m_mapWindowProvider.end())
 										{
@@ -1203,7 +1201,11 @@ BOOL CXobj::Create(DWORD dwStyle, const RECT& rect, CWnd* pParentWnd, UINT nID, 
 						CString strURLHeader = strURL.Left(nPos2);
 						if (strURLHeader.CompareNoCase(_T("host")) == 0)
 						{
-							strURL = g_pSpaceTelescope->m_strAppPath + strURL.Mid(nPos2 + 1);
+							CString s = strURL.Mid(nPos2 + 1);
+							if (g_pSpaceTelescope->m_bAgentModel)
+								strURL = g_pSpaceTelescope->m_strAgentPath + s;
+							else
+								strURL = g_pSpaceTelescope->m_strAppPath + s;
 						}
 					}
 					s += strURL;
@@ -2822,7 +2824,11 @@ STDMETHODIMP CXobj::NavigateURL(BSTR bstrURL, IDispatch* dispObjforScript)
 				CString strURLHeader = strURL.Left(nPos2);
 				if (strURLHeader.CompareNoCase(_T("host")) == 0)
 				{
-					strURL = g_pSpaceTelescope->m_strAppPath + strURL.Mid(nPos2 + 1);
+					CString s = strURL.Mid(nPos2 + 1);
+					if (g_pSpaceTelescope->m_bAgentModel)
+						strURL = g_pSpaceTelescope->m_strAgentPath + s;
+					else
+						strURL = g_pSpaceTelescope->m_strAppPath + s;
 				}
 			}
 			s += strURL;
@@ -2884,7 +2890,11 @@ STDMETHODIMP CXobj::put_URL(BSTR newVal)
 				CString strURLHeader = strURL.Left(nPos2);
 				if (strURLHeader.CompareNoCase(_T("host")) == 0)
 				{
-					strURL = g_pSpaceTelescope->m_strAppPath + strURL.Mid(nPos2 + 1);
+					CString s = strURL.Mid(nPos2 + 1);
+					if (g_pSpaceTelescope->m_bAgentModel)
+						strURL = g_pSpaceTelescope->m_strAgentPath + s;
+					else
+						strURL = g_pSpaceTelescope->m_strAppPath + s;
 				}
 			}
 			s += strURL;

@@ -30,6 +30,8 @@
 #include "Cosmos.h"
 #include "Browser.h"
 
+using namespace System::Reflection;
+
 #ifdef _WIN32
 #ifdef ReplaceText
 #undef ReplaceText
@@ -548,6 +550,18 @@ namespace Universe
 					Universe::WebRT::Run(nullptr);
 				}
 			}
+			else {
+				CString strVal = g_pSpaceTelescopeImpl->GetCreatorData(_T("AgentModel"));
+				if (strVal.CompareNoCase(_T("true")) == 0) {
+					if (Forms::Application::OpenForms->Count == 1)
+					{
+						Form^ form = Forms::Application::OpenForms[0];
+						if (!::IsWindow(g_pSpaceTelescopeImpl->m_hMainWnd)) {
+							g_pSpaceTelescopeImpl->SetCreatorData(form->IsMdiContainer ? _T("CLRMDIAppInfo") : _T("CLRSDIAppInfo"), _T("InitStartInfo"));
+						}
+					}
+				}
+			}
 		}
 		return 0;
 	}
@@ -571,6 +585,11 @@ namespace Universe
 			return;
 		}
 		if (!theApp.m_bNativeApp) {
+			if (MainObj->GetType()->IsSubclassOf(Form::typeid)) {
+				Form^ Mainform = (Form^)MainObj;
+				WebRT::MainForm::set((Form^)Mainform);
+				g_pSpaceTelescopeImpl->SetCreatorData(Mainform->IsMdiContainer ? _T("CLRMDIAppInfo") : _T("CLRSDIAppInfo"), _T("InitStartInfo"));
+			}
 			if (WebRT::WebRuntimeInit()) {
 				if (MainObj->GetType()->IsSubclassOf(Form::typeid)) {
 					Form^ Mainform = (Form^)MainObj;
@@ -737,7 +756,7 @@ namespace Universe
 		{
 			m_pWebRT = gcnew WebRT();
 			if (g_pSpaceTelescopeImpl && g_pSpaceTelescopeImpl->m_strStartupURL == _T("")) {
-				CString strURL = g_pSpaceTelescopeImpl->m_strAppPath + g_pSpaceTelescopeImpl->m_strExeName + _T(".app.html");
+				CString strURL = g_pSpaceTelescopeImpl->m_strAgentPath + g_pSpaceTelescopeImpl->m_strExeName + _T(".app.html");
 				if (::PathFileExists(strURL)) {
 					g_pSpaceTelescopeImpl->m_strStartupURL = strURL;
 					g_pSpaceTelescopeImpl->m_nAppType = APP_BROWSERAPP;
@@ -855,6 +874,13 @@ namespace Universe
 			FuncIsChromeRunning = (_IsChromeRunning)GetProcAddress(g_pSpaceTelescopeImpl->m_hWebRTProxyModel, "IsBrowserModel");
 			if (FuncIsChromeRunning != NULL) {
 				IsWebRuntimeInit = FuncIsChromeRunning(false);
+				if (IsWebRuntimeInit == false) {
+					typedef bool(__stdcall* _InitApp)(bool bSupportCrashReporting);
+					_InitApp FuncInitApp;
+					FuncInitApp = (_InitApp)GetProcAddress(g_pSpaceTelescopeImpl->m_hWebRTProxyModel, "InitApp");
+					if (FuncInitApp != nullptr)
+						FuncInitApp(false);
+				}
 				if (theAppProxy.m_bInitApp == false)
 				{
 					::PostAppMessage(::GetCurrentThreadId(), WM_COSMOSMSG, 0, 20191022);
@@ -1015,8 +1041,19 @@ namespace Universe
 		return OnGetSubObjForWebPage(SourceObj, subObjName);
 	}
 
+	//static bool g_bEnableBindCLRObjToWebPage = false;
 	void WebRT::Fire_OnBindCLRObjToWebPage(Object^ SourceObj, Universe::Wormhole^ eventSession, String^ eventName)
 	{
+		//if (g_bEnableBindCLRObjToWebPage == false) {
+		//	if (g_pSpaceTelescopeImpl) {
+		//		CString strInfo = g_pSpaceTelescopeImpl->GetCreatorData(_T("enabledomipcevent"));
+		//		if (strInfo == _T("false")) {
+		//			return;
+		//		}
+		//		else
+		//			g_bEnableBindCLRObjToWebPage = true;
+		//	}
+		//}
 		if (eventSession->isBindCLRObjToWebPage(SourceObj, eventName))
 			return;
 		Control^ pCtrl = (Control^)SourceObj;
@@ -1196,6 +1233,13 @@ namespace Universe
 		}
 	}
 
+	String^ WebRT::GetCreatorData(String^ strKey) {
+		return marshal_as<String^>(g_pSpaceTelescopeImpl->GetCreatorData(strKey));
+	}
+	void WebRT::SetCreatorData(String^ strKey, String^ val) {
+		g_pSpaceTelescopeImpl->SetCreatorData(strKey, val);
+	}
+
 	Xobj^ WebRT::GetXobjFromHandle(IntPtr handle)
 	{
 		IXobj* pWndXobj = nullptr;
@@ -1337,124 +1381,6 @@ namespace Universe
 		}
 		return pFiles;
 	}
-
-	//Dictionary<String^, Type^>^ WebRT::InitAppFormTypeDic()
-	//{
-	//    if (m_pAppFormTypeDic == nullptr)
-	//    {
-	//        m_pAppFormTypeDic = gcnew Dictionary<String^, Type^>();
-	//        CString filePath = System::Windows::Forms::Application::ExecutablePath->ToLower();
-	//        int nPos = filePath.ReverseFind('.');
-	//        CString strLib = filePath.Left(nPos).MakeLower();
-	//        CString strAssemblys = _T("");
-	//        String^ _strLib = marshal_as<String^>(filePath);
-	//        String^ strAssemblyLib = L"";
-	//        strLib = filePath.MakeLower();
-	//        Assembly^ m_pDotNetAssembly = nullptr;
-	//        try
-	//        {
-	//            m_pDotNetAssembly = Assembly::LoadFile(System::Windows::Forms::Application::ExecutablePath->ToLower());
-	//            if (m_pDotNetAssembly == nullptr)
-	//                return nullptr;
-	//        }
-	//        catch (ArgumentNullException ^ e)
-	//        {
-	//            Debug::WriteLine(L"WebRT InitAppFormTypeDic: " + e->Message);
-	//        }
-	//        catch (ArgumentException ^ e)
-	//        {
-	//            Debug::WriteLine(L"WebRT InitAppFormTypeDic: " + e->Message);
-	//        }
-	//        catch (FileNotFoundException ^ e)
-	//        {
-	//            Debug::WriteLine(L"WebRT InitAppFormTypeDic: " + e->Message);
-	//        }
-	//        catch (FileLoadException ^ e)
-	//        {
-	//            Debug::WriteLine(L"WebRT InitAppFormTypeDic: " + e->Message);
-	//        }
-	//        catch (BadImageFormatException ^ e)
-	//        {
-	//            Debug::WriteLine(L"WebRT InitAppFormTypeDic: " + e->Message);
-	//        }
-	//        finally
-	//        {
-	//            if (m_pDotNetAssembly != nullptr)
-	//            {
-	//                cli::array<Type^>^ pArray = m_pDotNetAssembly->GetExportedTypes();
-	//                for each (Type ^ type in pArray)
-	//                {
-	//                    if (type->IsSubclassOf(Form::typeid))
-	//                    {
-	//                        Form^ m_pObj = nullptr;
-	//                        try
-	//                        {
-	//                            m_pObj = (Form^)Activator::CreateInstance(type);
-	//                            HICON hIcon = (HICON)m_pObj->Icon->Handle.ToPointer();
-	//                            if (hIcon)
-	//                            {
-	//                                int nPos = filePath.ReverseFind('.');
-	//                                CString strLib = filePath.Left(nPos).MakeLower();
-	//                                CString strPath2 = strLib;
-	//                                nPos = strPath2.ReverseFind('\\');
-	//                                CString strPath = strPath2.Left(nPos + 1);
-	//                                CString strNmae = strPath2.Mid(nPos + 1);
-	//                                strPath2 = strPath;
-	//                                strPath2 += marshal_as<CString>(type->FullName);
-	//                                strPath2 += _T(" ");
-	//                                strPath2 += strNmae;
-	//                                strPath2 += _T(".ico");
-	//                                //Write Icon to File Stream
-	//                                System::IO::FileStream^ fs = gcnew System::IO::FileStream(marshal_as<String^>(strPath2), System::IO::FileMode::OpenOrCreate);
-	//                                m_pObj->Icon->Save(fs);
-	//                                fs->Close();
-	//                                delete fs;
-	//                            }
-	//                        }
-	//                        catch (Exception^)
-	//                        {
-
-	//                        }
-	//                        finally
-	//                        {
-	//                            if (m_pObj && m_pObj->IsMdiContainer)
-	//                            {
-	//                                if (m_pAppMDIFormTypeDic == nullptr)
-	//                                {
-	//                                    m_pAppMDIFormTypeDic = gcnew Dictionary<String^, Type^>();
-	//                                }
-	//                                m_pAppMDIFormTypeDic[type->FullName] = type;
-	//                            }
-	//                            else
-	//                            {
-	//                                if (m_pObj && (m_pObj->FormBorderStyle == FormBorderStyle::FixedToolWindow || m_pObj->FormBorderStyle == FormBorderStyle::None || m_pObj->FormBorderStyle == FormBorderStyle::SizableToolWindow))
-	//                                {
-	//                                }
-	//                                else
-	//                                    m_pAppFormTypeDic[type->FullName] = type;
-	//                            }
-	//                            if (m_pObj)
-	//                                m_pObj->Close();
-	//                        }
-	//                    }
-	//                }
-	//            }
-	//        }
-	//        if (m_pDotNetAssembly == nullptr)
-	//        {
-	//            return nullptr;
-	//        }
-	//    }
-	//    return m_pAppFormTypeDic;
-	//}
-
-	//void WebRT::ExtractToDirectory(String^ strSRC, String^ strTarget)
-	//{
-	//}
-
-	//void WebRT::ExportAllCLRObjInfo()
-	//{
-	//}
 
 	String^ WebRT::AppDataPath::get()
 	{
@@ -1603,6 +1529,73 @@ namespace Universe
 			theApp.m_pWebRT->CreateApplication(_strID, _strXml);
 		}
 	}
+
+	//Assembly^ WebRT::CompileWorkSpaceCsWithCosmos()
+	//{
+	//	// 1. 读取 test.cs 源码
+	//	String^ source = File::ReadAllText("test.cs");
+
+	//	// 2. 解析语法树
+	//	//Microsoft::CodeAnalysis::SyntaxTreeMicrosoft::CodeAnalysis::SyntaxTree^ syntaxTree = 
+	//	CSharpSyntaxTree::ParseText(source);
+
+	//	// 3. 收集必要的元数据引用
+	//	//    基础核心库（至少需要 System.Runtime 等），可直接从当前 AppDomain 拉取
+	//	auto assemblies = AppDomain::CurrentDomain->GetAssemblies();
+	//	List<MetadataReference^>^ references = gcnew List<MetadataReference^>();
+
+	//	for each (Assembly ^ asm in assemblies)
+	//	{
+	//		if (!asm->IsDynamic && !String::IsNullOrEmpty(asm->Location))
+	//		{
+	//			references->Add(MetadataReference::CreateFromFile(asm->Location));
+	//		}
+	//	}
+
+	//	// 4. 重点：额外添加 cosmos.dll 的引用
+	//	String^ cosmosPath = "cosmos.dll";   // 或绝对路径，如 "C:\\Libs\\cosmos.dll"
+	//	if (File::Exists(cosmosPath))
+	//	{
+	//		references->Add(MetadataReference::CreateFromFile(cosmosPath));
+	//	}
+	//	else
+	//	{
+	//		Console::WriteLine("Error: cosmos.dll not found at " + cosmosPath);
+	//		return nullptr;
+	//	}
+
+	//	// 5. 创建编译对象
+	//	CSharpCompilation^ compilation = CSharpCompilation::Create(
+	//		"DynamicTestAssembly",
+	//		gcnew array<SyntaxTree^> { syntaxTree },
+	//		references,
+	//		gcnew CSharpCompilationOptions(OutputKind::DynamicallyLinkedLibrary));
+
+	//	// 6. 编译到内存流
+	//	MemoryStream^ ms = gcnew MemoryStream();
+	//	EmitResult^ result = compilation->Emit(ms);
+
+	//	if (!result->Success)
+	//	{
+	//		// 输出编译错误
+	//		auto failures = result->Diagnostics
+	//			->Where(gcnew Func<Diagnostic, bool>([](Diagnostic^ d) {
+	//			return d->Severity == DiagnosticSeverity::Error;
+	//				}));
+	//		for each (Diagnostic ^ diag in failures)
+	//		{
+	//			Console::WriteLine(diag->GetMessage());
+	//		}
+	//		return nullptr;
+	//	}
+
+	//	ms->Seek(0, SeekOrigin::Begin);
+
+	//	// 7. 加载程序集（仅启动时执行一次，无需卸载）
+	//	array<Byte>^ rawAssembly = ms->ToArray();
+	//	Assembly^ dynamicAssembly = Assembly::Load(rawAssembly);
+	//	return dynamicAssembly;
+	//}
 
 	Object^ WebRT::ActiveObjectMethod(Object^ pObj, String^ strMethod, cli::array<Object^, 1>^ p)
 	{
@@ -1816,7 +1809,7 @@ namespace Universe
 		{
 			strUrls += L"|";
 			strUrls = strUrls->Replace(L"||", L"|");
-			CString strPath = g_pSpaceTelescopeImpl->m_strAppPath;
+			CString strPath = g_pSpaceTelescopeImpl->m_strAgentPath;
 
 			strUrls = strUrls->Replace(L"host:", marshal_as<String^>(strPath));
 			if (ParentHandle == (IntPtr)1)

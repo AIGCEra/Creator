@@ -52,6 +52,7 @@ public:
 	bool												m_bMainFormExists = false;
 	gcroot<String^>										m_strExtendableTypes;
 	map<CString, gcroot<Assembly^>>						m_mapAssembly;
+	map<CString, gcroot<Assembly^>>						m_mapResolveAssembly;
 	map<HWND, gcroot<WebView^>>							m_mapChromeWebPage;
 	map<HWND, NucleusInfo*>								m_mapNucleusInfo;
 	map<HWND, CTangramWPFObjWrapper*>					m_mapWpfControlWrapper;
@@ -86,7 +87,6 @@ public:
 	}
 	void CosmosAction(BSTR bstrXml, void*);
 	void ExportCLRObjInfo(CString strPath);
-	void ExportAllCLRObjInfo(CString _strPath);
 	IDispatch* CreateCLRObj(CString bstrObjID);
 	IDispatch* CreateCLRObjRemote(CString bstrObjID, CString strXmlData, HWND hHostWnd);
 private:
@@ -162,6 +162,7 @@ private:
 	static void OnTextChanged(System::Object^ sender, System::EventArgs^ e);
 	static void OnDomainUnload(System::Object^ sender, System::EventArgs^ e);
 	static void OnProcessExit(System::Object^ sender, System::EventArgs^ e);
+	static System::Reflection::Assembly^ OnAssemblyResolve(System::Object^ sender, System::ResolveEventArgs^ args);
 	static BOOL CALLBACK EnumFormMenuWndProc(HWND hWnd, LPARAM lParam)
 	{
 		IntPtr nHandle = (IntPtr)hWnd;

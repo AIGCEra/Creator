@@ -83,7 +83,6 @@
 
 #include <io.h>
 #include <stdio.h>
-#include <string>
 #include <iostream>
 #include <stdlib.h>
 #include <sstream>
@@ -130,11 +129,29 @@
 #include <wincrypt.h>
 #include <wintrust.h>
 #include <SoftPub.h>
-#pragma comment(lib, "crypt32.lib")
+
+#include <functional>
+#include <filesystem>
+#include <algorithm>
+#include <stdexcept>
+
+
+#include <atlbase.h>
+#include <atlfile.h>
+#include <atlsync.h>
+#include <atlstr.h>
+#include <atlcoll.h>
+#include <sddl.h>
+#include <aclapi.h>
+
+#include <unordered_set>
+#include <vector>
+#include <memory>
+
 #pragma comment(lib, "wintrust.lib")
+#pragma comment(lib, "crypt32.lib")
 
 #pragma comment(lib, "Bcrypt.lib")
-
 
 using namespace Browser;
 
@@ -177,79 +194,1054 @@ int readConfigFile(_TCHAR* config_file, int* argc, _TCHAR*** argv);
 _TCHAR* getIniFile(_TCHAR* program, int consoleLauncher);
 
 typedef jint(JNICALL* JNI_GetCreatedJavaVMs_)(JavaVM**, jsize, jsize*);
+namespace fs = std::filesystem;
 
 // CSpaceTelescope
 namespace CommonUniverse
 {
 	CWebRTImpl* g_pSpaceTelescopeImpl = nullptr;
 }
+#pragma once
+#include <atlbase.h>
+#include <atlfile.h>
+#include <atlstr.h>
+#include <atlutil.h>
+#include <atlcom.h>
+#include <vector>
+#include <unordered_set>
+#include <functional>
+#include <memory>
+#include <string>
 
-#define NT_SUCCESS(Status) (((NTSTATUS)(Status)) >= 0)
-#define SHA256_DIGEST_LENGTH 32
+namespace CreatorMonitor
+{
+	// ========================================================================
+	// RAII 辅助类（ACL 操作使用）
+	// ========================================================================
 
-BOOL CalculateFileSHA256(LPCTSTR filePath, BYTE hashBuffer[SHA256_DIGEST_LENGTH]) {
-	BCRYPT_ALG_HANDLE hAlg = NULL;
-	BCRYPT_HASH_HANDLE hHash = NULL;
-	HANDLE hFile = INVALID_HANDLE_VALUE;
-	BOOL bResult = FALSE;
-	DWORD hashObjectSize = 0, cbData = 0;
-	const DWORD bufferSize = 4096; // 4KB缓冲区，平衡I/O效率与内存
-	BYTE fileBuffer[4096];
-	DWORD bytesRead = 0;
-	PBYTE hashObject = NULL;
+	class CSidPtr
+	{
+	public:
+		CSidPtr() : m_pSid(nullptr) {}
+		~CSidPtr() { if (m_pSid) ::FreeSid(m_pSid); }
+		PSID* operator&() { return &m_pSid; }
+		PSID Get() const { return m_pSid; }
+		void Attach(PSID pSid) { if (m_pSid) FreeSid(m_pSid); m_pSid = pSid; }
+		CSidPtr& operator=(PSID pSid) { Attach(pSid); return *this; }
+		operator PSID() const { return m_pSid; }
+	private:
+		PSID m_pSid;
+	};
 
-	// 1. 打开算法提供程序
-	if (!NT_SUCCESS(BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM, NULL, 0))) {
-		_tprintf(_T("错误：无法打开SHA256算法提供程序\n"));
-		goto cleanup;
+	class CSidLocalPtr
+	{
+	public:
+		CSidLocalPtr() : m_pSid(nullptr) {}
+		~CSidLocalPtr() { if (m_pSid) ::LocalFree(m_pSid); }
+		PSID* operator&() { return &m_pSid; }
+		PSID Get() const { return m_pSid; }
+		void Attach(PSID pSid) { if (m_pSid) LocalFree(m_pSid); m_pSid = pSid; }
+		CSidLocalPtr& operator=(PSID pSid) { Attach(pSid); return *this; }
+		operator PSID() const { return m_pSid; }
+	private:
+		PSID m_pSid;
+	};
+
+	class CAclPtr
+	{
+	public:
+		CAclPtr() : m_pAcl(nullptr) {}
+		~CAclPtr() { if (m_pAcl) ::LocalFree(m_pAcl); }
+		PACL* operator&() { return &m_pAcl; }
+		PACL Get() const { return m_pAcl; }
+		void Attach(PACL pAcl) { if (m_pAcl) LocalFree(m_pAcl); m_pAcl = pAcl; }
+		CAclPtr& operator=(PACL pAcl) { Attach(pAcl); return *this; }
+		operator PACL() const { return m_pAcl; }
+	private:
+		PACL m_pAcl;
+	};
+
+	// ========================================================================
+	// ACL 管理类（静态方法）
+	// ========================================================================
+	class AccessControl
+	{
+	public:
+		// 通过账户名获取 SID
+		static HRESULT SidFromAccountName(const CString& accountName, CSidPtr& sid);
+		// 通过 SID 字符串获取 SID
+		static HRESULT SidFromString(const CString& sidString, CSidLocalPtr& sid);
+		// 获取目录当前权限（SDDL 字符串）
+		static HRESULT GetPermissions(const CString& path, CString& sddlString);
+		// 直接设置目录 DACL（完全替换）
+		static HRESULT SetDirectoryDacl(const CString& path, PACL pDacl, bool protect = true);
+		// 一键加固：SYSTEM/Administrators 完全控制，指定用户只读
+		static HRESULT ProtectDirectory(const CString& path,
+			const CString& readOnlyUser = L"S-1-1-0");
+	};
+
+	// ========================================================================
+	// 辅助类型
+	// ========================================================================
+	struct CStringHash
+	{
+		size_t operator()(const CString& str) const noexcept
+		{
+			return std::hash<std::wstring>{}(str.GetString());
+		}
+	};
+	using ExtensionSet = std::unordered_set<CString, CStringHash>;
+
+	// ========================================================================
+	// 单线程多目录监控类（支持文件 + 文件夹事件 + 安全回调）
+	// ========================================================================
+	class CDirectoryMonitor
+	{
+	public:
+		CDirectoryMonitor() = default;
+		virtual ~CDirectoryMonitor() { Stop(); }
+
+		// 启动监控
+		HRESULT Start(const CString& strDirectory, bool bWatchSubtree = true);
+		HRESULT Start(const std::vector<std::pair<CString, bool>>& directories);
+
+		// 停止所有监控
+		void Stop();
+
+		// 运行时动态增删目录（线程安全）
+		HRESULT AddDirectory(const CString& strPath, bool bWatchSubtree = true);
+		void    RemoveDirectory(const CString& strPath);
+
+		// 扩展名管理（仅对文件事件生效）
+		void SetMonitoredExtensions(const ExtensionSet& setExtensions);
+		ExtensionSet GetMonitoredExtensions() const;
+		void AddExtension(const CString& strExtension);
+		void RemoveExtension(const CString& strExtension);
+		static CString NormalizeExtension(const CString& strExt);
+
+		// 安全验证回调（优先于虚函数调用）
+		void SetVerifyCallback(std::function<bool(const CString&, int)> func)
+		{
+			m_verifyCallback = std::move(func);
+		}
+
+		// ★ 启用/禁用文件夹创建、删除、重命名事件监控（默认 false）
+		void SetWatchDirectories(bool bWatch) { m_bWatchDirectories = bWatch; }
+
+	protected:
+		// 虚函数，允许派生类覆盖；若设置了回调，优先调用回调
+		virtual bool VerifyFileSafety(const CString& strFullPath, int nAction);
+
+	private:
+		// 单个目录监控上下文
+		struct WatchEntry
+		{
+			CString            path;
+			bool               watchSubtree;
+			CAtlFile           hDir;
+			OVERLAPPED         overlapped = {};
+			CComHeapPtr<BYTE>  buffer;
+			DWORD              bufferSize = 0;
+			CDirectoryMonitor* pMonitor = nullptr;   // ★ 反向引用，用于获取动态过滤器
+
+			BOOL PostRead()
+			{
+				DWORD dwBytesReturned = 0;
+				return ReadDirectoryChangesW(
+					hDir,
+					buffer.m_pData,
+					bufferSize,
+					watchSubtree,
+					pMonitor ? pMonitor->GetNotifyFilter() : (FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_SIZE),
+					&dwBytesReturned,
+					&overlapped,
+					NULL);
+			}
+
+			void Close()
+			{
+				CancelIo(hDir);
+				hDir.Close();
+				buffer.Free();
+				bufferSize = 0;
+			}
+		};
+
+		// 线程函数
+		static DWORD WINAPI MonitorThreadProc(LPVOID pParam);
+		void MonitorLoop();
+
+		// 通知处理
+		void ProcessNotification(WatchEntry* entry, FILE_NOTIFY_INFORMATION* pNotify);
+
+		// 判断是否为目录事件（根据 Action 和实际属性）
+		static bool IsDirectoryEvent(const CString& fullPath, DWORD action);
+
+		// 扩展名判断
+		bool IsExtensionMonitored(const CString& strFileName) const;
+
+		// 紧急扫描（溢出时）
+		void EmergencyScan(const CString& strRoot);
+
+		// 内部方法：创建并启动一个 WatchEntry
+		HRESULT CreateAndStartEntry(const CString& path, bool watchSubtree,
+			std::unique_ptr<WatchEntry>& outEntry);
+
+		// 动态获取通知过滤器（根据是否监控目录）
+		DWORD GetNotifyFilter() const
+		{
+			DWORD filter = FILE_NOTIFY_CHANGE_FILE_NAME |
+				FILE_NOTIFY_CHANGE_LAST_WRITE |
+				FILE_NOTIFY_CHANGE_SIZE;
+			if (m_bWatchDirectories)
+				filter |= FILE_NOTIFY_CHANGE_DIR_NAME;
+			return filter;
+		}
+
+		// 同步成员
+		CHandle                          m_hIocp;
+		mutable CComAutoCriticalSection  m_csEntries;
+		std::vector<std::unique_ptr<WatchEntry>> m_entries;
+
+		// 扩展名集合
+		mutable CComAutoCriticalSection  m_csExtensions;
+		ExtensionSet                     m_setExtensions;
+
+		// 验证回调
+		std::function<bool(const CString&, int)> m_verifyCallback;
+
+		// 线程控制
+		CHandle        m_hThread;
+		volatile bool  m_bRunning = false;
+		volatile bool  m_bStopRequested = false;
+
+		// ★ 是否监控文件夹事件
+		bool           m_bWatchDirectories = false;
+	};
+
+	// ========================================================================
+	// 多目录监控管理器（简化版，直接使用 CDirectoryMonitor + 回调）
+	// ========================================================================
+	class CMultiDirectoryMonitor
+	{
+	public:
+		CMultiDirectoryMonitor() = default;
+		~CMultiDirectoryMonitor() { StopAll(); }
+
+		HRESULT AddPath(const CString& strPath, bool bWatchSubtree = true)
+		{
+			CComCritSecLock<CComAutoCriticalSection> lock(m_cs, true);
+			return m_monitor.AddDirectory(strPath, bWatchSubtree);
+		}
+
+		void RemovePath(const CString& strPath)
+		{
+			CComCritSecLock<CComAutoCriticalSection> lock(m_cs, true);
+			m_monitor.RemoveDirectory(strPath);
+		}
+
+		void StopAll()
+		{
+			CComCritSecLock<CComAutoCriticalSection> lock(m_cs, true);
+			m_monitor.Stop();
+		}
+
+		void AddExtension(const CString& strExtension)
+		{
+			CComCritSecLock<CComAutoCriticalSection> lock(m_cs, true);
+			m_monitor.AddExtension(strExtension);
+		}
+
+		void RemoveExtension(const CString& strExtension)
+		{
+			CComCritSecLock<CComAutoCriticalSection> lock(m_cs, true);
+			m_monitor.RemoveExtension(strExtension);
+		}
+
+		void SetExtensions(const ExtensionSet& setExtensions)
+		{
+			CComCritSecLock<CComAutoCriticalSection> lock(m_cs, true);
+			m_monitor.SetMonitoredExtensions(setExtensions);
+		}
+
+		ExtensionSet GetExtensions() const
+		{
+			CComCritSecLock<CComAutoCriticalSection> lock(m_cs, true);
+			return m_monitor.GetMonitoredExtensions();
+		}
+
+		void SetVerifyCallback(std::function<bool(const CString&, int)> func)
+		{
+			CComCritSecLock<CComAutoCriticalSection> lock(m_cs, true);
+			m_monitor.SetVerifyCallback(std::move(func));
+		}
+
+		// ★ 启用/禁用文件夹监控
+		void SetWatchDirectories(bool bWatch)
+		{
+			CComCritSecLock<CComAutoCriticalSection> lock(m_cs, true);
+			m_monitor.SetWatchDirectories(bWatch);
+		}
+
+	private:
+		mutable CComAutoCriticalSection m_cs;
+		CDirectoryMonitor               m_monitor;
+	};
+
+	// 设置目录 ACL：只允许 SYSTEM 和 Administrators 完全控制，普通用户只读
+	inline HRESULT SetSecureDirectoryAcl(const CString& strDirectory)
+	{
+		ATLASSERT(!strDirectory.IsEmpty());
+
+		// 1. 获取 SYSTEM 和 Administrators 的 SID
+		CSidPtr systemSid, adminSid;
+		SID_IDENTIFIER_AUTHORITY ntAuth = SECURITY_NT_AUTHORITY;
+
+		if (!AllocateAndInitializeSid(&ntAuth, 1, SECURITY_LOCAL_SYSTEM_RID,
+			0, 0, 0, 0, 0, 0, 0, &systemSid))
+			return HRESULT_FROM_WIN32(GetLastError());
+
+		if (!AllocateAndInitializeSid(&ntAuth, 2, SECURITY_BUILTIN_DOMAIN_RID,
+			DOMAIN_ALIAS_RID_ADMINS,
+			0, 0, 0, 0, 0, 0, &adminSid))
+			return HRESULT_FROM_WIN32(GetLastError());
+
+		// 2. 获取低权限用户 SID（以 "Everyone" 示例，实际请替换为你的服务账户）
+		CSidLocalPtr userSid;
+		if (!ConvertStringSidToSid(L"S-1-1-0", &userSid))
+			return HRESULT_FROM_WIN32(GetLastError());
+
+		// 3. 定义 ACE
+		EXPLICIT_ACCESS ea[3] = {};
+
+		ea[0].grfAccessPermissions = GENERIC_ALL;
+		ea[0].grfAccessMode = SET_ACCESS;
+		ea[0].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+		ea[0].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+		ea[0].Trustee.ptstrName = (LPTSTR)systemSid.Get();
+
+		ea[1].grfAccessPermissions = GENERIC_ALL;
+		ea[1].grfAccessMode = SET_ACCESS;
+		ea[1].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+		ea[1].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+		ea[1].Trustee.ptstrName = (LPTSTR)adminSid.Get();
+
+		ea[2].grfAccessPermissions = GENERIC_READ | GENERIC_EXECUTE;
+		ea[2].grfAccessMode = SET_ACCESS;
+		ea[2].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+		ea[2].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+		ea[2].Trustee.ptstrName = (LPTSTR)userSid.Get();
+
+		// 4. 创建 DACL
+		PACL pNewDacl = nullptr;
+		DWORD dwErr = SetEntriesInAcl(3, ea, nullptr, &pNewDacl);
+		if (dwErr != ERROR_SUCCESS)
+			return HRESULT_FROM_WIN32(dwErr);
+
+		// 5. 应用到目录
+		dwErr = SetNamedSecurityInfo(
+			const_cast<LPWSTR>(static_cast<LPCWSTR>(strDirectory)),
+			SE_FILE_OBJECT,
+			DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+			nullptr, nullptr, pNewDacl, nullptr);
+
+		LocalFree(pNewDacl); // 释放 SetEntriesInAcl 分配的 DACL
+
+		if (dwErr != ERROR_SUCCESS)
+			return HRESULT_FROM_WIN32(dwErr);
+
+		ATLTRACE(L"[CreatorMonitor] 目录 ACL 加固完成: %s\n", strDirectory.GetString());
+		return S_OK;
 	}
 
-	// 2. 创建哈希对象
-	// 获取哈希对象所需内存大小
-	if (!NT_SUCCESS(BCryptGetProperty(hAlg, BCRYPT_OBJECT_LENGTH, (PBYTE)&hashObjectSize, sizeof(DWORD), &cbData, 0))) {
-		goto cleanup;
+	// ========================================================================
+	// 实现 - AccessControl
+	// ========================================================================
+	inline HRESULT AccessControl::SidFromAccountName(const CString& accountName, CSidPtr& sid)
+	{
+		DWORD sidSize = 0, domainSize = 0;
+		SID_NAME_USE use;
+		if (!LookupAccountName(nullptr, accountName, nullptr, &sidSize,
+			nullptr, &domainSize, &use) &&
+			GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+			return HRESULT_FROM_WIN32(GetLastError());
+
+		std::vector<BYTE> sidBuf(sidSize);
+		CString domain;
+		domainSize = domainSize + 1;
+		domain = CString('\0', domainSize);
+
+		if (!LookupAccountName(nullptr, accountName, sidBuf.data(), &sidSize,
+			domain.GetBuffer(), &domainSize, &use))
+		{
+			domain.ReleaseBuffer();
+			return HRESULT_FROM_WIN32(GetLastError());
+		}
+		domain.ReleaseBuffer();
+
+		// 复制 SID
+		PSID pNewSid = (PSID)::operator new(::GetLengthSid(sidBuf.data()));
+		if (!pNewSid) return E_OUTOFMEMORY;
+		if (!::CopySid(::GetLengthSid(sidBuf.data()), pNewSid, sidBuf.data()))
+		{
+			::operator delete(pNewSid);
+			return HRESULT_FROM_WIN32(GetLastError());
+		}
+		sid = CSidPtr(); // 释放旧 SID
+		sid.Attach(pNewSid);
+		return S_OK;
 	}
 
-	hashObject = (PBYTE)HeapAlloc(GetProcessHeap(), 0, hashObjectSize);
-	if (!hashObject) goto cleanup;
-
-	if (!NT_SUCCESS(BCryptCreateHash(hAlg, &hHash, hashObject, hashObjectSize, NULL, 0, 0))) {
-		HeapFree(GetProcessHeap(), 0, hashObject);
-		goto cleanup;
+	inline HRESULT AccessControl::SidFromString(const CString& sidString, CSidLocalPtr& sid)
+	{
+		if (!ConvertStringSidToSid(sidString, &sid))
+			return HRESULT_FROM_WIN32(GetLastError());
+		return S_OK;
 	}
 
-	// 3. 打开目标文件
-	hFile = CreateFile(filePath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (hFile == INVALID_HANDLE_VALUE) {
-		_tprintf(_T("错误：无法打开文件 %s\n"), filePath);
-		goto cleanup;
+	inline HRESULT AccessControl::GetPermissions(const CString& path, CString& sddlString)
+	{
+		PSECURITY_DESCRIPTOR pSD = nullptr;
+		DWORD dwErr = GetNamedSecurityInfo(
+			const_cast<LPWSTR>(static_cast<LPCWSTR>(path)),
+			SE_FILE_OBJECT,
+			DACL_SECURITY_INFORMATION,
+			nullptr, nullptr, nullptr, nullptr,
+			&pSD);
+		if (dwErr != ERROR_SUCCESS)
+			return HRESULT_FROM_WIN32(dwErr);
+
+		LPWSTR strSD = nullptr;
+		ULONG strLen = 0;
+		if (!ConvertSecurityDescriptorToStringSecurityDescriptor(
+			pSD, SDDL_REVISION_1, DACL_SECURITY_INFORMATION, &strSD, &strLen))
+		{
+			LocalFree(pSD);
+			return HRESULT_FROM_WIN32(GetLastError());
+		}
+		sddlString = strSD;
+		LocalFree(strSD);
+		LocalFree(pSD);
+		return S_OK;
 	}
 
-	// 4. 分块读取文件并更新哈希
+	inline HRESULT AccessControl::SetDirectoryDacl(const CString& path, PACL pDacl, bool protect)
+	{
+		SECURITY_INFORMATION secInfo = DACL_SECURITY_INFORMATION;
+		if (protect) secInfo |= PROTECTED_DACL_SECURITY_INFORMATION;
 
-	while (ReadFile(hFile, fileBuffer, bufferSize, &bytesRead, NULL) && bytesRead > 0) {
-		if (!NT_SUCCESS(BCryptHashData(hHash, fileBuffer, bytesRead, 0))) {
-			goto cleanup;
+		DWORD dwErr = SetNamedSecurityInfo(
+			const_cast<LPWSTR>(static_cast<LPCWSTR>(path)),
+			SE_FILE_OBJECT,
+			secInfo,
+			nullptr, nullptr,
+			pDacl,
+			nullptr);
+		return dwErr == ERROR_SUCCESS ? S_OK : HRESULT_FROM_WIN32(dwErr);
+	}
+
+	inline HRESULT AccessControl::ProtectDirectory(const CString& path, const CString& readOnlyUser)
+	{
+		CSidPtr systemSid, adminSid;
+		SID_IDENTIFIER_AUTHORITY ntAuth = SECURITY_NT_AUTHORITY;
+
+		if (!AllocateAndInitializeSid(&ntAuth, 1, SECURITY_LOCAL_SYSTEM_RID,
+			0, 0, 0, 0, 0, 0, 0, &systemSid))
+			return HRESULT_FROM_WIN32(GetLastError());
+
+		if (!AllocateAndInitializeSid(&ntAuth, 2, SECURITY_BUILTIN_DOMAIN_RID,
+			DOMAIN_ALIAS_RID_ADMINS,
+			0, 0, 0, 0, 0, 0, &adminSid))
+			return HRESULT_FROM_WIN32(GetLastError());
+
+		CSidLocalPtr userSid;
+		if (FAILED(SidFromString(readOnlyUser, userSid)))
+			return E_INVALIDARG;
+
+		EXPLICIT_ACCESS ea[3] = {};
+		ea[0].grfAccessPermissions = GENERIC_ALL;
+		ea[0].grfAccessMode = SET_ACCESS;
+		ea[0].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+		ea[0].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+		ea[0].Trustee.ptstrName = (LPTSTR)systemSid.Get();
+
+		ea[1].grfAccessPermissions = GENERIC_ALL;
+		ea[1].grfAccessMode = SET_ACCESS;
+		ea[1].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+		ea[1].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+		ea[1].Trustee.ptstrName = (LPTSTR)adminSid.Get();
+
+		ea[2].grfAccessPermissions = GENERIC_READ | GENERIC_EXECUTE;
+		ea[2].grfAccessMode = SET_ACCESS;
+		ea[2].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+		ea[2].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+		ea[2].Trustee.ptstrName = (LPTSTR)userSid.Get();
+
+		CAclPtr pDacl;
+		DWORD err = SetEntriesInAcl(3, ea, nullptr, &pDacl);
+		if (err != ERROR_SUCCESS)
+			return HRESULT_FROM_WIN32(err);
+
+		return SetDirectoryDacl(path, pDacl, true);
+	}
+
+	// ========================================================================
+	// 实现 - CDirectoryMonitor
+	// ========================================================================
+	inline CString CDirectoryMonitor::NormalizeExtension(const CString& strExt)
+	{
+		CString s = strExt;
+		s.MakeLower();
+		if (!s.IsEmpty() && s[0] != L'.')
+			s = L"." + s;
+		return s;
+	}
+
+	inline void CDirectoryMonitor::SetMonitoredExtensions(const ExtensionSet& setExtensions)
+	{
+		CComCritSecLock<CComAutoCriticalSection> lock(m_csExtensions, true);
+		m_setExtensions.clear();
+		for (const auto& ext : setExtensions)
+			m_setExtensions.insert(NormalizeExtension(ext));
+	}
+
+	inline ExtensionSet CDirectoryMonitor::GetMonitoredExtensions() const
+	{
+		CComCritSecLock<CComAutoCriticalSection> lock(m_csExtensions, true);
+		return m_setExtensions;
+	}
+
+	inline void CDirectoryMonitor::AddExtension(const CString& strExtension)
+	{
+		CComCritSecLock<CComAutoCriticalSection> lock(m_csExtensions, true);
+		m_setExtensions.insert(NormalizeExtension(strExtension));
+	}
+
+	inline void CDirectoryMonitor::RemoveExtension(const CString& strExtension)
+	{
+		CComCritSecLock<CComAutoCriticalSection> lock(m_csExtensions, true);
+		m_setExtensions.erase(NormalizeExtension(strExtension));
+	}
+
+	inline bool CDirectoryMonitor::VerifyFileSafety(const CString& strFullPath, int nAction)
+	{
+		if (m_verifyCallback)
+			return m_verifyCallback(strFullPath, nAction);
+		return true; // 默认安全
+	}
+
+	inline bool CDirectoryMonitor::IsDirectoryEvent(const CString& fullPath, DWORD action)
+	{
+		// 对于 ADDED/MODIFIED 可直接检查属性；对于 REMOVED/RENAMED_OLD_NAME 可能已不存在，
+		// 这里简单处理：若无法获取属性，则根据 action 类型判断（REMOVED/RENAMED_OLD_NAME 视为可能目录）
+		DWORD attr = GetFileAttributes(fullPath);
+		if (attr != INVALID_FILE_ATTRIBUTES)
+			return (attr & FILE_ATTRIBUTE_DIRECTORY) != 0;
+
+		// 文件/目录已不存在：对于删除和旧名称重命名事件，视为目录事件（无法区分）
+		return (action == FILE_ACTION_REMOVED || action == FILE_ACTION_RENAMED_OLD_NAME);
+	}
+
+	inline HRESULT CDirectoryMonitor::CreateAndStartEntry(const CString& path, bool watchSubtree,
+		std::unique_ptr<WatchEntry>& outEntry)
+	{
+		auto entry = std::make_unique<WatchEntry>();
+		entry->path = path;
+		entry->watchSubtree = watchSubtree;
+		entry->pMonitor = this;   // ★ 设置反向引用
+
+		HRESULT hr = entry->hDir.Create(
+			path,
+			GENERIC_READ,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+			OPEN_EXISTING,
+			FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED);
+		if (FAILED(hr)) return hr;
+
+		const DWORD dwBufSize = 16 * 1024;
+		if (!entry->buffer.Allocate(dwBufSize))
+		{
+			entry->hDir.Close();
+			return E_OUTOFMEMORY;
+		}
+		entry->bufferSize = dwBufSize;
+
+		if (!CreateIoCompletionPort(entry->hDir, m_hIocp, (ULONG_PTR)entry.get(), 0))
+		{
+			entry->Close();
+			return HRESULT_FROM_WIN32(GetLastError());
+		}
+
+		if (!entry->PostRead())
+		{
+			entry->Close();
+			return HRESULT_FROM_WIN32(GetLastError());
+		}
+
+		outEntry = std::move(entry);
+		return S_OK;
+	}
+
+	inline HRESULT CDirectoryMonitor::Start(const CString& strDirectory, bool bWatchSubtree)
+	{
+		return Start({ { strDirectory, bWatchSubtree } });
+	}
+
+	inline HRESULT CDirectoryMonitor::Start(const std::vector<std::pair<CString, bool>>& directories)
+	{
+		ATLASSERT(!m_bRunning);
+		if (m_bRunning) return E_FAIL;
+
+		m_hIocp.Attach(CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0));
+		if (!m_hIocp) return HRESULT_FROM_WIN32(GetLastError());
+
+		for (const auto& [path, subtree] : directories)
+		{
+			std::unique_ptr<WatchEntry> entry;
+			HRESULT hr = CreateAndStartEntry(path, subtree, entry);
+			if (FAILED(hr))
+			{
+				for (auto& e : m_entries)
+					e->Close();
+				m_entries.clear();
+				m_hIocp.Close();
+				return hr;
+			}
+			m_entries.push_back(std::move(entry));
+		}
+
+		m_bStopRequested = false;
+		m_bRunning = true;
+		m_hThread.Attach(CreateThread(NULL, 0, MonitorThreadProc, this, 0, NULL));
+		if (!m_hThread)
+		{
+			Stop();
+			return HRESULT_FROM_WIN32(GetLastError());
+		}
+		return S_OK;
+	}
+
+	inline void CDirectoryMonitor::Stop()
+	{
+		if (!m_bRunning) return;
+		m_bStopRequested = true;
+
+		if (m_hIocp)
+			PostQueuedCompletionStatus(m_hIocp, 0, 0, NULL);
+
+		if (m_hThread)
+			WaitForSingleObject(m_hThread, 5000);
+
+		for (auto& e : m_entries)
+			e->Close();
+		m_entries.clear();
+
+		if (m_hIocp)
+			m_hIocp.Close();
+
+		m_hThread.Close();
+		m_bRunning = false;
+	}
+
+	inline HRESULT CDirectoryMonitor::AddDirectory(const CString& strPath, bool bWatchSubtree)
+	{
+		if (!m_bRunning) return E_FAIL;
+
+		std::unique_ptr<WatchEntry> entry;
+		HRESULT hr = CreateAndStartEntry(strPath, bWatchSubtree, entry);
+		if (FAILED(hr)) return hr;
+
+		{
+			CComCritSecLock<CComAutoCriticalSection> lock(m_csEntries, true);
+			m_entries.push_back(std::move(entry));
+		}
+		return S_OK;
+	}
+
+	inline void CDirectoryMonitor::RemoveDirectory(const CString& strPath)
+	{
+		if (!m_bRunning) return;
+
+		std::unique_ptr<WatchEntry> target;
+		{
+			CComCritSecLock<CComAutoCriticalSection> lock(m_csEntries, true);
+			auto it = std::find_if(m_entries.begin(), m_entries.end(),
+				[&](const std::unique_ptr<WatchEntry>& e) {
+					return e->path.CompareNoCase(strPath) == 0;
+				});
+			if (it != m_entries.end())
+			{
+				target = std::move(*it);
+				m_entries.erase(it);
+			}
+		}
+		if (target)
+			target->Close();
+	}
+
+	inline DWORD WINAPI CDirectoryMonitor::MonitorThreadProc(LPVOID pParam)
+	{
+		auto* pThis = static_cast<CDirectoryMonitor*>(pParam);
+		pThis->MonitorLoop();
+		return 0;
+	}
+
+	inline void CDirectoryMonitor::MonitorLoop()
+	{
+		while (!m_bStopRequested)
+		{
+			DWORD dwTransferred = 0;
+			ULONG_PTR ulKey = 0;
+			OVERLAPPED* pOverlapped = nullptr;
+
+			BOOL bIOCP = GetQueuedCompletionStatus(
+				m_hIocp, &dwTransferred, &ulKey, &pOverlapped, 1000);
+
+			if (m_bStopRequested) break;
+
+			if (!bIOCP)
+			{
+				if (pOverlapped == nullptr) continue;
+				ATLTRACE(L"[CreatorMonitor] IOCP 错误: %lu\n", GetLastError());
+				continue;
+			}
+
+			auto* pEntry = reinterpret_cast<WatchEntry*>(ulKey);
+			if (!pEntry) continue;
+
+			if (dwTransferred == 0)
+			{
+				ATLTRACE(L"[CreatorMonitor] 缓冲区溢出: %s\n", pEntry->path.GetString());
+				EmergencyScan(pEntry->path);
+			}
+			else
+			{
+				auto* pNotify = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(pEntry->buffer.m_pData);
+				for (;;)
+				{
+					ProcessNotification(pEntry, pNotify);
+					if (pNotify->NextEntryOffset == 0) break;
+					pNotify = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(
+						reinterpret_cast<BYTE*>(pNotify) + pNotify->NextEntryOffset);
+				}
+			}
+
+			if (!pEntry->PostRead())
+			{
+				ATLTRACE(L"[CreatorMonitor] 重新提交 ReadDirectoryChanges 失败: %s\n", pEntry->path.GetString());
+			}
+		}
+
+		for (auto& e : m_entries)
+			e->Close();
+	}
+
+	inline void CDirectoryMonitor::ProcessNotification(WatchEntry* entry, FILE_NOTIFY_INFORMATION* pNotify)
+	{
+		CString strName(pNotify->FileName, pNotify->FileNameLength / sizeof(WCHAR));
+		CString strFullPath = entry->path + L"\\" + strName;
+		strFullPath.Replace(_T("\\\\"), _T("\\"));
+
+		// ★ 如果开启了目录监控，且事件可能涉及目录，则直接通知（跳过扩展名过滤）
+		if (m_bWatchDirectories)
+		{
+			bool bIsDir = IsDirectoryEvent(strFullPath, pNotify->Action);
+			if (bIsDir)
+			{
+				ATLTRACE(L"[CreatorMonitor] 目录变更: %s (action=%d)\n", strFullPath.GetString(), pNotify->Action);
+				VerifyFileSafety(strFullPath, pNotify->Action);
+				return;
+			}
+		}
+
+		// 文件事件处理（原有逻辑）
+		switch (pNotify->Action)
+		{
+		case FILE_ACTION_ADDED:
+		case FILE_ACTION_RENAMED_NEW_NAME:
+		case FILE_ACTION_MODIFIED:
+		case FILE_ACTION_REMOVED:
+			if (IsExtensionMonitored(strName))
+			{
+				ATLTRACE(L"[CreatorMonitor] 文件变更: %s (action=%d)\n", strFullPath.GetString(), pNotify->Action);
+				VerifyFileSafety(strFullPath, pNotify->Action);
+			}
+			break;
+		case FILE_ACTION_RENAMED_OLD_NAME:
+			// 旧名称重命名对文件监控无意义，忽略
+			break;
 		}
 	}
 
-	// 5. 最终计算并获取哈希值
-	if (NT_SUCCESS(BCryptFinishHash(hHash, hashBuffer, SHA256_DIGEST_LENGTH, 0))) {
-		bResult = TRUE; // 成功！
+	inline bool CDirectoryMonitor::IsExtensionMonitored(const CString& strFileName) const
+	{
+		int iDot = strFileName.ReverseFind(L'.');
+		if (iDot == -1) return false;
+		CString strExt = strFileName.Mid(iDot).MakeLower();
+		CComCritSecLock<CComAutoCriticalSection> lock(m_csExtensions, true);
+		return m_setExtensions.find(strExt) == m_setExtensions.end();
 	}
 
-cleanup:
-	// 6. 安全清理所有资源
-	if (hHash) BCryptDestroyHash(hHash);
-	if (hashObject) HeapFree(GetProcessHeap(), 0, hashObject); // 注意释放顺序，hHash销毁后再释放buffer
-	if (hAlg) BCryptCloseAlgorithmProvider(hAlg, 0);
-	if (hFile != INVALID_HANDLE_VALUE) CloseHandle(hFile);
+	inline void CDirectoryMonitor::EmergencyScan(const CString& strRoot)
+	{
+		CString strSearch = strRoot + L"\\*";
+		WIN32_FIND_DATA fd;
+		HANDLE hFind = FindFirstFile(strSearch, &fd);
+		if (hFind == INVALID_HANDLE_VALUE) return;
+		do
+		{
+			if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+			{
+				if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
+				// 扫描子目录时，如果需要监控文件夹事件，也应该通知
+				if (m_bWatchDirectories)
+				{
+					CString fullPath = strRoot + L"\\" + fd.cFileName;
+					VerifyFileSafety(fullPath, 100); // 自定义动作码 100 表示紧急扫描
+				}
+				EmergencyScan(strRoot + L"\\" + fd.cFileName);
+			}
+			else
+			{
+				CString strFile(fd.cFileName);
+				if (IsExtensionMonitored(strFile))
+				{
+					CString strFullPath = strRoot + L"\\" + strFile;
+					if (!VerifyFileSafety(strFullPath, 100))
+					{
+						ATLTRACE(L"[CreatorMonitor] 扫描发现危险文件: %s\n", strFullPath.GetString());
+					}
+				}
+			}
+		} while (FindNextFile(hFind, &fd));
+		FindClose(hFind);
+	}
 
-	return bResult;
+} // namespace CreatorMonitor
+
+/*
+int wmain(int argc, wchar_t* argv[]) {
+	_setmode(_fileno(stdout), _O_U16TEXT);
+
+	std::vector<std::pair<std::wstring, DllXmlGeneratorStd::SingleAttrFunc>> attrs = {
+		{ L"md5", CalcMd5 }
+	};
+	std::vector<std::wstring> exts = { L".dll", L".exe" };
+	std::vector<std::wstring> exclude = { L"*.tmp" };
+	std::vector<std::wstring> checkExts = { L".dll", L".sys" };  // 只检查这两个
+
+	DllXmlGeneratorStd::GenerateDllAttributesXml(
+		L"C:\\MyApp",
+		L"report.xml",
+		attrs,
+		exts,
+		true,                    // preserveHierarchy
+		L"components",
+		exclude,
+		true,                    // includeBase
+		CheckEV,                 // checkFunc
+		checkExts,               // checkExtensions
+		L"EVCheck",              // checkAttrName
+		L"unchecked",            // uncheckedNodeName
+		false                    // unchecked 内部展平
+	);
+
+	return 0;
 }
+*/
+
+//#define NT_SUCCESS(Status) (((NTSTATUS)(Status)) >= 0)
+//#define SHA256_DIGEST_LENGTH 32
+
+//BOOL CalculateFileSHA256(LPCTSTR filePath, BYTE hashBuffer[SHA256_DIGEST_LENGTH]) {
+//	BCRYPT_ALG_HANDLE hAlg = NULL;
+//	BCRYPT_HASH_HANDLE hHash = NULL;
+//	HANDLE hFile = INVALID_HANDLE_VALUE;
+//	BOOL bResult = FALSE;
+//	DWORD hashObjectSize = 0, cbData = 0;
+//	const DWORD bufferSize = 4096; // 4KB缓冲区，平衡I/O效率与内存
+//	BYTE fileBuffer[4096];
+//	DWORD bytesRead = 0;
+//	PBYTE hashObject = NULL;
+//
+//	// 1. 打开算法提供程序
+//	if (!NT_SUCCESS(BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM, NULL, 0))) {
+//		_tprintf(_T("错误：无法打开SHA256算法提供程序\n"));
+//		goto cleanup;
+//	}
+//
+//	// 2. 创建哈希对象
+//	// 获取哈希对象所需内存大小
+//	if (!NT_SUCCESS(BCryptGetProperty(hAlg, BCRYPT_OBJECT_LENGTH, (PBYTE)&hashObjectSize, sizeof(DWORD), &cbData, 0))) {
+//		goto cleanup;
+//	}
+//
+//	hashObject = (PBYTE)HeapAlloc(GetProcessHeap(), 0, hashObjectSize);
+//	if (!hashObject) goto cleanup;
+//
+//	if (!NT_SUCCESS(BCryptCreateHash(hAlg, &hHash, hashObject, hashObjectSize, NULL, 0, 0))) {
+//		HeapFree(GetProcessHeap(), 0, hashObject);
+//		goto cleanup;
+//	}
+//
+//	// 3. 打开目标文件
+//	hFile = CreateFile(filePath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+//	if (hFile == INVALID_HANDLE_VALUE) {
+//		_tprintf(_T("错误：无法打开文件 %s\n"), filePath);
+//		goto cleanup;
+//	}
+//
+//	// 4. 分块读取文件并更新哈希
+//
+//	while (ReadFile(hFile, fileBuffer, bufferSize, &bytesRead, NULL) && bytesRead > 0) {
+//		if (!NT_SUCCESS(BCryptHashData(hHash, fileBuffer, bytesRead, 0))) {
+//			goto cleanup;
+//		}
+//	}
+//
+//	// 5. 最终计算并获取哈希值
+//	if (NT_SUCCESS(BCryptFinishHash(hHash, hashBuffer, SHA256_DIGEST_LENGTH, 0))) {
+//		bResult = TRUE; // 成功！
+//	}
+//
+//cleanup:
+//	// 6. 安全清理所有资源
+//	if (hHash) BCryptDestroyHash(hHash);
+//	if (hashObject) HeapFree(GetProcessHeap(), 0, hashObject); // 注意释放顺序，hHash销毁后再释放buffer
+//	if (hAlg) BCryptCloseAlgorithmProvider(hAlg, 0);
+//	if (hFile != INVALID_HANDLE_VALUE) CloseHandle(hFile);
+//
+//	return bResult;
+//}
 
 // EV 签名的策略 OID（扩展验证代码签名）
 const char* EV_POLICY_OID = "2.23.140.1.3";
+
+namespace EvCheck {
+	// 常见 EV 策略 OID 列表（可根据实际需求扩充）
+	static const char* const EV_POLICY_OIDS[] = {
+		"2.23.140.1.3",                  // CA/Browser Forum 统一 EV OID
+		"1.3.6.1.4.1.311.60.2.1"         // 微软旧 EV OID
+	};
+	static const size_t EV_POLICY_OID_COUNT = sizeof(EV_POLICY_OIDS) / sizeof(EV_POLICY_OIDS[0]);
+
+	inline bool CheckDllNoSigned(const CString& filePath) {
+		WINTRUST_FILE_INFO fileInfo = { sizeof(WINTRUST_FILE_INFO) };
+		fileInfo.pcwszFilePath = filePath;
+
+		WINTRUST_DATA trustData = { sizeof(WINTRUST_DATA) };
+		trustData.dwUnionChoice = WTD_CHOICE_FILE;
+		trustData.pFile = &fileInfo;
+		trustData.dwUIChoice = WTD_UI_NONE;
+		trustData.dwProvFlags = WTD_REVOCATION_CHECK_NONE;  // 可改为更严格的策略
+		trustData.dwStateAction = WTD_STATEACTION_VERIFY;
+
+		GUID policyGuid = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+
+		LONG lStatus = WinVerifyTrust(NULL, &policyGuid, &trustData);
+
+		// 清理状态（无论验证结果如何都要执行）
+		trustData.dwStateAction = WTD_STATEACTION_CLOSE;
+		WinVerifyTrust(NULL, &policyGuid, &trustData);
+
+		// 只有明确返回 TRUST_E_NOSIGNATURE 才是“无签名”
+		return (lStatus == TRUST_E_NOSIGNATURE);
+	}
+
+	inline bool IsEVSigned(const CString& filePath) {
+		WINTRUST_FILE_INFO fileInfo = { sizeof(WINTRUST_FILE_INFO) };
+		fileInfo.pcwszFilePath = filePath;
+
+		WINTRUST_DATA trustData = { sizeof(WINTRUST_DATA) };
+		trustData.dwUnionChoice = WTD_CHOICE_FILE;
+		trustData.pFile = &fileInfo;
+		trustData.dwUIChoice = WTD_UI_NONE;
+		trustData.dwProvFlags = WTD_REVOCATION_CHECK_NONE;
+		trustData.dwStateAction = WTD_STATEACTION_VERIFY;
+
+		GUID policyGuid = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+
+		LONG lStatus = WinVerifyTrust(NULL, &policyGuid, &trustData);
+		if (lStatus != ERROR_SUCCESS) {
+			trustData.dwStateAction = WTD_STATEACTION_CLOSE;
+			WinVerifyTrust(NULL, &policyGuid, &trustData);
+			return false;
+		}
+
+		CRYPT_PROVIDER_DATA* pProvData = WTHelperProvDataFromStateData(trustData.hWVTStateData);
+		if (!pProvData) {
+			trustData.dwStateAction = WTD_STATEACTION_CLOSE;
+			WinVerifyTrust(NULL, &policyGuid, &trustData);
+			return false;
+		}
+		if (pProvData->csSigners == 0) {
+			trustData.dwStateAction = WTD_STATEACTION_CLOSE;
+			WinVerifyTrust(NULL, &policyGuid, &trustData);
+			return false;
+		}
+		bool isEV = false;
+		for (DWORD iSigner = 0; iSigner < pProvData->csSigners && !isEV; ++iSigner) {
+			CRYPT_PROVIDER_SGNR* pSigner = WTHelperGetProvSignerFromChain(pProvData, iSigner, FALSE, 0);
+			if (!pSigner) continue;
+
+			for (DWORD iCert = 0; iCert < pSigner->csCertChain; ++iCert) {
+				PCCERT_CONTEXT pCert = pSigner->pasCertChain[iCert].pCert;
+				if (!pCert) continue;
+
+				PCERT_EXTENSION pExt = CertFindExtension(
+					szOID_CERT_POLICIES,
+					pCert->pCertInfo->cExtension,
+					pCert->pCertInfo->rgExtension);
+
+				if (pExt) {
+					DWORD cbSize = 0;
+					if (CryptDecodeObject(X509_ASN_ENCODING,
+						szOID_CERT_POLICIES,
+						pExt->Value.pbData,
+						pExt->Value.cbData,
+						0,
+						NULL,
+						&cbSize)) {
+						std::vector<BYTE> buffer(cbSize);
+						if (CryptDecodeObject(X509_ASN_ENCODING,
+							szOID_CERT_POLICIES,
+							pExt->Value.pbData,
+							pExt->Value.cbData,
+							0,
+							buffer.data(),
+							&cbSize)) {
+							CERT_POLICIES_INFO* pInfo = reinterpret_cast<CERT_POLICIES_INFO*>(buffer.data());
+							for (DWORD j = 0; j < pInfo->cPolicyInfo; ++j) {
+								for (size_t k = 0; k < EV_POLICY_OID_COUNT; ++k) {
+									if (strcmp(pInfo->rgPolicyInfo[j].pszPolicyIdentifier, EV_POLICY_OIDS[k]) == 0) {
+										isEV = true;
+										break;
+									}
+								}
+								if (isEV) break;
+							}
+						}
+					}
+				}
+				if (isEV) break;
+			}
+		}
+
+		trustData.dwStateAction = WTD_STATEACTION_CLOSE;
+		WinVerifyTrust(NULL, &policyGuid, &trustData);
+		return isEV;
+	}
+} // namespace EvCheck
+
+/*
+// STL 调用
+std::wstring stlPath = L"C:\\test.exe";
+bool stlResult = EvCheck::Stl::IsEVSigned(stlPath);
+
+// ATL 调用
+CString atlPath = L"C:\\test.exe";
+bool atlResult = EvCheck::Atl::IsEVSigned(atlPath);
+*/
 
 // 自动释放证书的智能指针
 using CertContextPtr = std::unique_ptr<const CERT_CONTEXT, decltype(&CertFreeCertificateContext)>;
@@ -687,6 +1679,1155 @@ bool CheckEVSignatureSimplified(const wchar_t* filePath) {
 	return isEV;
 }
 
+std::string GetFileSha256STL(const std::wstring& filePath) {
+	// 打开文件
+	HANDLE hFile = CreateFileW(filePath.c_str(), GENERIC_READ,
+		FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+		FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+	if (hFile == INVALID_HANDLE_VALUE) {
+		//throw std::runtime_error("Cannot open file");
+		return "";
+	}
+	// 自动关闭句柄
+	auto closeFile = [](HANDLE h) { CloseHandle(h); };
+	std::unique_ptr<void, decltype(closeFile)> fileGuard(hFile, closeFile);
+
+	// 获取文件大小用于预分配（可选）
+	LARGE_INTEGER fileSize;
+	if (!GetFileSizeEx(hFile, &fileSize)) {
+		//throw std::runtime_error("Cannot get file size");
+		return "";
+	}
+
+	// 打开 SHA256 算法提供程序
+	BCRYPT_ALG_HANDLE hAlg = nullptr;
+	if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM,
+		nullptr, 0))) {
+		//throw std::runtime_error("BCryptOpenAlgorithmProvider failed");
+		return "";
+	}
+	auto closeAlg = [](BCRYPT_ALG_HANDLE h) { BCryptCloseAlgorithmProvider(h, 0); };
+	std::unique_ptr<void, decltype(closeAlg)> algGuard(hAlg, closeAlg);
+
+	// 创建哈希对象
+	BCRYPT_HASH_HANDLE hHash = nullptr;
+	if (!BCRYPT_SUCCESS(BCryptCreateHash(hAlg, &hHash, nullptr, 0, nullptr, 0, 0))) {
+		return "";
+		//throw std::runtime_error("BCryptCreateHash failed");
+	}
+	auto closeHash = [](BCRYPT_HASH_HANDLE h) { BCryptDestroyHash(h); };
+	std::unique_ptr<void, decltype(closeHash)> hashGuard(hHash, closeHash);
+
+	// 分块读取文件并更新哈希
+	const DWORD kBufferSize = 1 << 20; // 1 MB
+	std::vector<BYTE> buffer(kBufferSize);
+	DWORD bytesRead = 0;
+	while (ReadFile(hFile, buffer.data(), kBufferSize, &bytesRead, nullptr) && bytesRead > 0) {
+		if (!BCRYPT_SUCCESS(BCryptHashData(hHash, buffer.data(), bytesRead, 0))) {
+			return "";
+			//throw std::runtime_error("BCryptHashData failed");
+		}
+	}
+
+	// 获取哈希值（SHA256 固定 32 字节）
+	const DWORD kHashSize = 32;
+	BYTE hash[kHashSize] = {};
+	if (!BCRYPT_SUCCESS(BCryptFinishHash(hHash, hash, kHashSize, 0))) {
+		return "";
+		//throw std::runtime_error("BCryptFinishHash failed");
+	}
+
+	// 转换为十六进制字符串
+	std::string result;
+	result.reserve(kHashSize * 2);
+	for (DWORD i = 0; i < kHashSize; ++i) {
+		char hex[3];
+		sprintf_s(hex, "%02x", hash[i]);
+		result.append(hex);
+	}
+	return result;
+}
+
+CString SHA256Hash(const CString& input)
+{
+	// 将 CString (wide) 转换为 UTF-8
+	int utf8Len = WideCharToMultiByte(CP_UTF8, 0, input, -1, nullptr, 0, nullptr, nullptr);
+	if (utf8Len <= 0) return CString();
+	std::vector<char> utf8Data(utf8Len);
+	WideCharToMultiByte(CP_UTF8, 0, input, -1, utf8Data.data(), utf8Len, nullptr, nullptr);
+
+	BCRYPT_ALG_HANDLE hAlg = nullptr;
+	BCRYPT_HASH_HANDLE hHash = nullptr;
+	NTSTATUS status = BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM, nullptr, 0);
+	if (!BCRYPT_SUCCESS(status)) return CString();
+
+	status = BCryptCreateHash(hAlg, &hHash, nullptr, 0, nullptr, 0, 0);
+	if (!BCRYPT_SUCCESS(status)) {
+		BCryptCloseAlgorithmProvider(hAlg, 0);
+		return CString();
+	}
+
+	// 不包含结尾空字符的哈希，使用 utf8Len - 1 长度
+	status = BCryptHashData(hHash, (PUCHAR)utf8Data.data(), utf8Len - 1, 0);
+	if (!BCRYPT_SUCCESS(status)) {
+		BCryptDestroyHash(hHash);
+		BCryptCloseAlgorithmProvider(hAlg, 0);
+		return CString();
+	}
+
+	DWORD hashLen = 0, cbResult = 0;
+	status = BCryptGetProperty(hAlg, BCRYPT_HASH_LENGTH, (PUCHAR)&hashLen, sizeof(hashLen), &cbResult, 0);
+	if (!BCRYPT_SUCCESS(status)) {
+		BCryptDestroyHash(hHash);
+		BCryptCloseAlgorithmProvider(hAlg, 0);
+		return CString();
+	}
+
+	std::vector<BYTE> hash(hashLen);
+	status = BCryptFinishHash(hHash, hash.data(), hashLen, 0);
+	BCryptDestroyHash(hHash);
+	BCryptCloseAlgorithmProvider(hAlg, 0);
+	if (!BCRYPT_SUCCESS(status)) return CString();
+
+	// 转换为十六进制字符串
+	CString result;
+	for (BYTE b : hash) {
+		result.AppendFormat(L"%02x", b);
+	}
+	return result;
+}
+
+CString GetFileSha256(const CString& filePath) {
+	// 打开文件
+	HANDLE hFile = CreateFileW(filePath, GENERIC_READ, FILE_SHARE_READ,
+		nullptr, OPEN_EXISTING,
+		FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+	if (hFile == INVALID_HANDLE_VALUE) {
+		//throw std::runtime_error("Cannot open file");
+		return _T("");
+	}
+
+	auto closeFile = [](HANDLE h) { CloseHandle(h); };
+	std::unique_ptr<void, decltype(closeFile)> fileGuard(hFile, closeFile);
+
+	// 打开 SHA256 算法提供程序
+	BCRYPT_ALG_HANDLE hAlg = nullptr;
+	if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM,
+		nullptr, 0))) {
+		return _T("");
+		//throw std::runtime_error("BCryptOpenAlgorithmProvider failed");
+	}
+	auto closeAlg = [](BCRYPT_ALG_HANDLE h) { BCryptCloseAlgorithmProvider(h, 0); };
+	std::unique_ptr<void, decltype(closeAlg)> algGuard(hAlg, closeAlg);
+
+	// 创建哈希对象
+	BCRYPT_HASH_HANDLE hHash = nullptr;
+	if (!BCRYPT_SUCCESS(BCryptCreateHash(hAlg, &hHash, nullptr, 0, nullptr, 0, 0))) {
+		//throw std::runtime_error("BCryptCreateHash failed");
+		return L"";
+	}
+	auto closeHash = [](BCRYPT_HASH_HANDLE h) { BCryptDestroyHash(h); };
+	std::unique_ptr<void, decltype(closeHash)> hashGuard(hHash, closeHash);
+
+	// 分块读取文件
+	const DWORD kBufferSize = 1 << 20; // 1 MB
+	std::vector<BYTE> buffer(kBufferSize);
+	DWORD bytesRead = 0;
+	while (ReadFile(hFile, buffer.data(), kBufferSize, &bytesRead, nullptr) &&
+		bytesRead > 0) {
+		if (!BCRYPT_SUCCESS(BCryptHashData(hHash, buffer.data(), bytesRead, 0))) {
+			//throw std::runtime_error("BCryptHashData failed");
+			return _T("");
+		}
+	}
+
+	// 获取哈希值
+	const DWORD kHashSize = 32;
+	BYTE hash[kHashSize] = {};
+	if (!BCRYPT_SUCCESS(BCryptFinishHash(hHash, hash, kHashSize, 0))) {
+		//throw std::runtime_error("BCryptFinishHash failed");
+		return _T("");
+	}
+
+	// 转换为十六进制 CString
+	CString result;
+	for (DWORD i = 0; i < kHashSize; ++i) {
+		CString hex;
+		hex.Format(L"%02x", hash[i]);
+		result += hex;
+	}
+	return result;
+}
+
+CString GetFileEVSigned(const CString& filePath) {
+	CString result = _T("false");
+	bool EVSigned = EvCheck::IsEVSigned(filePath);
+	if (EVSigned)
+		result = _T("true");
+	return result;
+}
+
+std::wstring GetAgentPathFromCommandLine() {
+	LPWSTR cmdLine = GetCommandLineW();
+	int argc;
+	LPWSTR* argv = CommandLineToArgvW(cmdLine, &argc);
+	if (!argv) return L"";
+
+	std::wstring result;
+	for (int i = 0; i < argc; ++i) {
+		std::wstring arg = argv[i];
+		if (arg.find(L"CreatorAgent:") == 0) {
+			result = arg;
+			break;
+		}
+	}
+
+	LocalFree(argv); // 释放 CommandLineToArgvW 分配的内存
+	return result;
+}
+
+std::wstring TrimQuotes(const std::wstring& s) {
+	if (s.size() >= 2 && s.front() == L'"' && s.back() == L'"')
+		return s.substr(1, s.size() - 2);
+	return s;
+}
+
+
+namespace Creator {
+
+	namespace fs = std::filesystem;
+	DWORD GetMainThreadIdForCurrentProcess() {
+		DWORD currentProcessId = GetCurrentProcessId();
+		DWORD mainThreadId = 0;
+
+		// 拍摄系统线程快照
+		HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+		if (hSnapshot == INVALID_HANDLE_VALUE)
+			return 0;
+
+		// 收集本进程所有线程的 ID 和创建时间
+		std::vector<std::pair<DWORD, FILETIME>> threads;
+
+		THREADENTRY32 te = { sizeof(te) };
+		if (Thread32First(hSnapshot, &te)) {
+			do
+			{
+				if (te.th32OwnerProcessID == currentProcessId) {
+					// 打开本进程内的线程 —— 一定成功，无需提权
+					HANDLE hThread = OpenThread(THREAD_QUERY_INFORMATION,
+						FALSE,
+						te.th32ThreadID);
+					if (hThread) {
+						FILETIME createTime, exitTime, kernelTime, userTime;
+						if (GetThreadTimes(hThread, &createTime, &exitTime,
+							&kernelTime, &userTime)) {
+							threads.push_back({ te.th32ThreadID, createTime });
+						}
+						CloseHandle(hThread);
+					}
+				}
+			} while (Thread32Next(hSnapshot, &te));
+		}
+
+		CloseHandle(hSnapshot);
+
+		if (threads.empty())
+			return 0;
+
+		// 创建时间最早的线程就是主线程
+		auto mainIt = std::min_element(threads.begin(), threads.end(),
+			[](const auto& a, const auto& b) {
+				return CompareFileTime(&a.second, &b.second) < 0;
+			});
+
+		return mainIt->first;
+	}
+
+	HWND FindMainWindowOfCurrentProcess() {
+		struct EnumData {
+			DWORD pid;
+			HWND result;
+		} data = { GetCurrentProcessId(), nullptr };
+
+		EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL {
+			auto* pData = reinterpret_cast<EnumData*>(lParam);
+			DWORD pid = 0;
+			GetWindowThreadProcessId(hwnd, &pid);
+			if (pid != pData->pid) return TRUE;
+
+			// 必须是顶层窗口（无父窗口）
+			if (GetParent(hwnd) != NULL) return TRUE;
+
+			// 必须有标准窗口装饰
+			LONG style = GetWindowLong(hwnd, GWL_STYLE);
+			if (!(style & WS_OVERLAPPEDWINDOW)) return TRUE;
+
+			// 必须可见
+			if (!IsWindowVisible(hwnd)) return TRUE;
+
+			// 排除被拥有的窗口（如模态对话框）
+			if (GetWindow(hwnd, GW_OWNER) != NULL) return TRUE;
+
+			// 优先选择有 WS_EX_APPWINDOW 的窗口（任务栏有图标）
+			LONG exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+			if (exStyle & WS_EX_APPWINDOW) {
+				pData->result = hwnd;
+				return FALSE; // 找到最符合条件的，停止枚举
+			}
+
+			// 否则保存第一个通过的作为备选
+			if (pData->result == NULL) {
+				pData->result = hwnd;
+			}
+			return TRUE;
+			}, reinterpret_cast<LPARAM>(&data));
+
+		return data.result;
+	}
+
+	inline std::wstring BuildCommandLine(const std::wstring& exePath,
+		const std::wstring& startInfoPath)   // 文件绝对路径
+	{
+		std::wostringstream cmd;
+		cmd << L'"' << exePath << L'"';
+		LPWSTR fullCmdLine = GetCommandLineW();
+
+		// 解析父进程命令行参数
+		int argc;
+		LPWSTR* argv = CommandLineToArgvW(fullCmdLine, &argc);
+		if (argv == NULL) {
+			return L"";
+		}
+		std::vector<std::wstring> parentArgs;
+		for (int i = 1; i < argc; ++i) {
+			parentArgs.push_back(argv[i]);
+		}
+		LocalFree(argv);
+
+		// 追加父进程的参数
+		for (const auto& arg : parentArgs) {
+			cmd << L' ';
+			if (arg.find(L' ') != std::wstring::npos ||
+				arg.find(L'\t') != std::wstring::npos) {
+				cmd << L'"' << arg << L'"';
+			}
+			else {
+				cmd << arg;
+			}
+		}
+
+		// 追加 /StartInfo 参数（仅在路径非空时）
+		if (!startInfoPath.empty()) {
+			cmd << L" /StartInfo ";          // 参数名，可根据需要改为 --start-info 等
+			if (startInfoPath.find(L' ') != std::wstring::npos ||
+				startInfoPath.find(L'\t') != std::wstring::npos) {
+				cmd << L'"' << startInfoPath << L'"';
+			}
+			else {
+				cmd << startInfoPath;
+			}
+		}
+
+		return cmd.str();
+	}
+
+	inline CString GetArgFromCmdLine(CString strArgName)
+	{
+		LPWSTR cmdLine = GetCommandLineW();
+		int argc;
+		LPWSTR* argv = CommandLineToArgvW(cmdLine, &argc);
+		if (argv == nullptr) {
+			return L"";
+		}
+
+		std::wstring startInfoPath;
+		for (int i = 0; i < argc; ++i) {
+			// 查找 /StartInfo 参数（不区分大小写）
+			if (_wcsicmp(argv[i], strArgName) == 0) {
+				// 确保下一个参数存在
+				if (i + 1 < argc) {
+					startInfoPath = argv[i + 1];
+				}
+				break;
+			}
+		}
+		LocalFree(argv);
+		return startInfoPath.c_str();
+	}
+
+	// ---------- CString → UTF-8 ----------
+	inline std::string CStringToUtf8(const CString& str) {
+		if (str.IsEmpty()) return {};
+		int len = WideCharToMultiByte(CP_UTF8, 0, str, str.GetLength(),
+			nullptr, 0, nullptr, nullptr);
+		std::string result(len, 0);
+		WideCharToMultiByte(CP_UTF8, 0, str, str.GetLength(),
+			&result[0], len, nullptr, nullptr);
+		return result;
+	}
+
+	vector<CString> SplitCString(LPCTSTR pszStr, LPCTSTR pszDelim = _T(","))
+	{
+		std::vector<CString> vecResult;
+		CString strSource(pszStr);
+		int nPos = 0;
+		CString strToken = strSource.Tokenize(pszDelim, nPos);
+
+		while (!strToken.IsEmpty())
+		{
+			vecResult.push_back(strToken);
+			strToken = strSource.Tokenize(pszDelim, nPos);
+		}
+
+		return vecResult;
+	}
+
+	// ---------- 相对路径（基于小写比较）----------
+	inline CString GetRelativePath(const CString& absPath, const CString& rootAbsPath) {
+		CString root = rootAbsPath;
+		root.MakeLower();
+		if (!root.IsEmpty() && root[root.GetLength() - 1] != L'\\')
+			root += L'\\';
+		CString absLower = absPath;
+		absLower.MakeLower();
+		if (absLower.Find(root) == 0)
+			return absPath.Mid(root.GetLength());   // 返回原始大小写的相对路径（若需要大小写可调整）
+		return absPath;
+	}
+
+	// ---------- XML 转义 ----------
+	inline std::string EscapeXml(const CString& str) {
+		std::string utf8 = CStringToUtf8(str);
+		std::string out;
+		out.reserve(utf8.size());
+		for (char c : utf8) {
+			switch (c) {
+			case '<': out += "&lt;"; break;
+			case '>': out += "&gt;"; break;
+			case '&': out += "&amp;"; break;
+			case '"': out += "&quot;"; break;
+			case '\'': out += "&apos;"; break;
+			default:  out += c;
+			}
+		}
+		return out;
+	}
+
+	// ---------- 树节点 ----------
+	struct Node {
+		CString name;                 // 文件名（不含扩展名）或目录名
+		bool isDirectory = false;
+		CString path;                 // 相对路径（目录或完整文件相对路径）
+		std::vector<CString> attrValues;
+		std::vector<Node> children;
+	};
+
+	// ---------- 属性函数类型 ----------
+	using SingleAttrFunc = std::function<CString(const CString& dllPath)>;
+
+	// ---------- 排序辅助函数（目录优先，名称升序）----------
+	inline void SortNodeChildren(Node& node) {
+		std::sort(node.children.begin(), node.children.end(),
+			[](const Node& a, const Node& b) {
+				if (a.isDirectory != b.isDirectory) return a.isDirectory > b.isDirectory;
+				CString an = a.name, bn = b.name;
+				an.MakeLower();
+				bn.MakeLower();
+				return an < bn;
+			});
+	}
+
+	// ---------- 收集所有文件节点（展平用）----------
+	void CollectAllFiles(const Node& node, std::vector<Node>& out) {
+		if (node.isDirectory) {
+			for (const auto& child : node.children)
+				CollectAllFiles(child, out);
+		}
+		else {
+			out.push_back(node);
+		}
+	}
+
+	// ---------- XML 输出（动态标签，条件跳过检查属性）----------
+	void WriteXmlNode(std::ostream& os,
+		const Node& node,
+		const std::vector<CString>& attrNames,
+		int indent = 0,
+		size_t checkAttrIndex = (size_t)-1) {
+		std::string ind(indent, ' ');
+		if (node.isDirectory) {
+			std::string escapedName = EscapeXml(node.name);
+			os << ind << "<folder name=\"" << escapedName << "\">\n";
+			for (const auto& child : node.children)
+				WriteXmlNode(os, child, attrNames, indent + 2, checkAttrIndex);
+			os << ind << "</folder>\n";
+		}
+		else {
+			// 动态标签名：扩展名（无点）
+			CString tagName = L"file";
+			fs::path fn(node.name.GetString());   // node.name 已不含扩展名，需从 path 中提取扩展名
+			// 注意：此处依赖 node.path 包含扩展名，例如 "sub\core.dll"
+			fs::path fullPath(node.path.GetString());
+			std::wstring ext = fullPath.extension().wstring();
+			if (!ext.empty() && ext[0] == L'.')
+				ext = ext.substr(1);
+			if (!ext.empty())
+				tagName = ext.c_str();
+
+
+			//CString strName = node.name;
+			//int nPos = strName.ReverseFind('.');
+			//if (nPos != -1)
+			//	strName = strName.Left(nPos);
+			//CString pathName = node.path;
+			//nPos = strName.ReverseFind('\\');
+			//if (nPos != -1)
+			//	pathName = pathName.Left(nPos);
+			//else
+			//	pathName = _T("");
+			//nPos = pathName.ReverseFind('\\');
+			///////////////////////////////////////////
+			//os << ind << "<" << EscapeXml(tagName)
+			//	<< " name=\"" << EscapeXml(strName);
+			//if (!node.path.IsEmpty()) {
+			//	CString pathName = node.path;
+			//	if (pathName != _T(""))
+			//		os << "\" path=\"" << EscapeXml(node.path) << "\"";
+			//	else
+			//		os << "\"";
+			//}
+			////////////////////////////////////////////
+
+
+			os << ind << "<" << EscapeXml(tagName)
+				<< " name=\"" << EscapeXml(node.name) << "\"";
+			if (!node.path.IsEmpty())
+				os << " path=\"" << EscapeXml(node.path) << "\"";
+			for (size_t i = 0; i < attrNames.size(); ++i) {
+				if (checkAttrIndex < attrNames.size() && i == checkAttrIndex) {
+					CString val = node.attrValues[i];
+					val.MakeLower();
+					if (val == L"false" || val.IsEmpty()) continue;
+				}
+				os << " " << EscapeXml(attrNames[i])
+					<< "=\"" << EscapeXml(node.attrValues[i]) << "\"";
+			}
+			os << "/>\n";
+		}
+	}
+
+	// ---------- 目录扫描（递归结束后排序）----------
+	void ScanDirectory(const fs::path& dirPath,
+		Node& parentNode,
+		const std::vector<CString>& attrNames,
+		const std::vector<SingleAttrFunc>& attrFuncs,
+		const std::vector<CString>& extensions,
+		const CString& rootAbsPath,
+		const std::vector<CString>& excludePatterns) {
+		bool matchAll = false;
+		for (const auto& ext : extensions) {
+			CString lowExt = ext;
+			lowExt.MakeLower();
+			if (lowExt == L"*.*") {
+				matchAll = true;
+				break;
+			}
+		}
+
+		try {
+			for (const auto& entry : fs::directory_iterator(dirPath)) {
+				if (entry.is_directory()) {
+					Node dirNode;
+					dirNode.name = entry.path().filename().wstring().c_str();
+					dirNode.name.MakeLower();               // 目录名统一小写
+					dirNode.isDirectory = true;
+
+					ScanDirectory(entry.path(), dirNode, attrNames, attrFuncs,
+						extensions, rootAbsPath, excludePatterns);
+					if (!dirNode.children.empty()) {
+						parentNode.children.push_back(std::move(dirNode));
+					}
+				}
+				else if (entry.is_regular_file()) {
+					bool matched = matchAll;
+					if (!matched) {
+						CString ext = entry.path().extension().wstring().c_str();
+						ext.MakeLower();
+						for (const auto& validExt : extensions) {
+							CString lowValid = validExt;
+							lowValid.MakeLower();
+							if (lowValid == L"*.*") continue;
+							if (ext == lowValid) {
+								matched = true;
+								break;
+							}
+						}
+					}
+
+					if (matched) {
+						bool excluded = false;
+						for (const auto& pat : excludePatterns) {
+							if (PathMatchSpecW(entry.path().filename().c_str(), pat.GetString())) {
+								excluded = true;
+								break;
+							}
+						}
+						if (excluded)
+							continue;
+
+						Node fileNode;
+						// 文件名保留原始大小写但转为小写存储（确保指纹稳定）
+						CString fullName = entry.path().filename().wstring().c_str();
+						fullName.MakeLower();                     // 统一小写
+						fileNode.name = fullName.Left(fullName.ReverseFind(L'.'));   // 去掉扩展名
+						fileNode.isDirectory = false;
+
+						CString absPath = fs::absolute(entry.path()).wstring().c_str();
+						absPath.MakeLower();
+						// 获取完整相对路径（包含文件名）
+						CString relativeFull = GetRelativePath(absPath, rootAbsPath);
+						fileNode.path = relativeFull;            // 修复：保留文件名
+
+						fileNode.attrValues.resize(attrNames.size());
+						for (size_t i = 0; i < attrNames.size(); ++i) {
+							try {
+								fileNode.attrValues[i] = attrFuncs[i](absPath);
+							}
+							catch (const std::exception& e) {
+								fileNode.attrValues[i] = CString(L"ERROR: ") + CString(e.what());
+							}
+							catch (...) {
+								fileNode.attrValues[i] = L"ERROR: unknown exception";
+							}
+						}
+						parentNode.children.push_back(std::move(fileNode));
+					}
+				}
+			}
+			SortNodeChildren(parentNode);  // 排序保证输出顺序确定
+		}
+		catch (const fs::filesystem_error&) {
+			// 忽略无权限目录
+		}
+	}
+
+	// ---------- 分离正常 / 未通过（基于检查属性）----------
+	void SeparateByCheck(Node& node,
+		const CString& checkAttrName,
+		std::vector<Node>& normalOut,
+		std::vector<Node>& uncheckedOut,
+		size_t checkAttrIndex) {
+		if (node.isDirectory) {
+			Node normalDir{ node.name, true, L"", {}, {} };
+			Node uncheckedDir{ node.name, true, L"", {}, {} };
+			for (auto& child : node.children) {
+				SeparateByCheck(child, checkAttrName, normalDir.children, uncheckedDir.children, checkAttrIndex);
+			}
+			if (!normalDir.children.empty())
+				normalOut.push_back(std::move(normalDir));
+			if (!uncheckedDir.children.empty())
+				uncheckedOut.push_back(std::move(uncheckedDir));
+		}
+		else {
+			bool isOk = true;
+			if (checkAttrIndex < node.attrValues.size()) {
+				CString val = node.attrValues[checkAttrIndex];
+				val.MakeLower();
+				if (!val.IsEmpty() && val != L"true")
+					isOk = false;
+			}
+			if (isOk)
+				normalOut.push_back(std::move(node));
+			else
+				uncheckedOut.push_back(std::move(node));
+		}
+	}
+
+	// ---------- 按白名单路径分离未通过节点 ----------
+	void SeparateByWhitelist(const std::vector<Node>& uncheckedChildren,
+		const std::vector<CString>& whitelistPatterns,
+		std::vector<Node>& blockedOut,
+		std::vector<Node>& whitelistedOut) {
+		// 构建虚拟根节点以复用递归逻辑
+		Node uncheckedRoot{ L"", true, L"", {}, uncheckedChildren };
+
+		// 白名单前缀转为小写并以 '\\' 结尾
+		std::vector<CString> lowerPatterns = whitelistPatterns;
+		for (auto& p : lowerPatterns) {
+			p.MakeLower();
+			if (!p.IsEmpty() && p[p.GetLength() - 1] != L'\\')
+				p += L'\\';
+		}
+
+		std::function<void(const Node&, std::vector<Node>&, std::vector<Node>&)> recurse =
+			[&](const Node& node, std::vector<Node>& blocked, std::vector<Node>& whitelisted) {
+			if (node.isDirectory) {
+				Node blockedDir{ node.name, true, L"", {}, {} };
+				Node whitelistedDir{ node.name, true, L"", {}, {} };
+				for (const auto& child : node.children) {
+					recurse(child, blockedDir.children, whitelistedDir.children);
+				}
+				if (!blockedDir.children.empty())
+					blocked.push_back(std::move(blockedDir));
+				if (!whitelistedDir.children.empty())
+					whitelisted.push_back(std::move(whitelistedDir));
+			}
+			else {
+				// 判断文件路径是否匹配白名单前缀
+				CString pathLower = node.path;
+				pathLower.MakeLower();
+				bool isWhite = false;
+				for (const auto& prefix : lowerPatterns) {
+					if (pathLower.Find(prefix) == 0) {
+						isWhite = true;
+						break;
+					}
+				}
+				if (isWhite)
+					whitelisted.push_back(node);
+				else
+					blocked.push_back(node);
+			}
+			};
+
+		recurse(uncheckedRoot, blockedOut, whitelistedOut);
+	}
+
+	// ---------- 对外主接口 ----------
+	inline CString GenerateCreatorXml(
+		const CString& rootPath,
+		const CString& outputXmlPath,
+		const std::vector<std::pair<CString, SingleAttrFunc>>& attributes,
+		const std::vector<CString>& extensions = { L".dll" },
+		bool preserveHierarchy = true,
+		const CString& rootElementName = L"dll_list",
+		const std::vector<CString>& excludePatterns = {},
+		bool includeBase = true,
+		SingleAttrFunc checkFunc = nullptr,
+		const std::vector<CString>& checkExtensions = {},
+		const CString& checkAttrName = L"EVCheck",
+		const CString& uncheckedNodeName = L"unchecked",
+		bool uncheckedPreserveHierarchy = true,
+		const std::vector<CString>& uncheckedWhitelistPatterns = {},
+		const CString& uncheckedBlockedNodeName = L"unchecked",
+		const CString& uncheckedWhitelistedNodeName = L"unchecked_whitelisted",
+		CString* outUncheckedBlockedXml = nullptr,      // [出] blocked 节点的 XML 片段
+		CString* outUncheckedWhitelistedXml = nullptr   // [出] whitelisted 节点的 XML 片段
+	)
+	{
+		// 1. 根路径规范化
+		std::error_code ec;
+		fs::path root = fs::canonical(rootPath.GetString(), ec);
+		if (ec) {
+			root = fs::absolute(rootPath.GetString());
+			if (!fs::exists(root) || !fs::is_directory(root))
+				return CString();   // 路径无效，静默返回空字符串
+		}
+
+		CString rootAbsPath = root.wstring().c_str();
+		if (!rootAbsPath.IsEmpty() && rootAbsPath[rootAbsPath.GetLength() - 1] != L'\\')
+			rootAbsPath += L'\\';
+		rootAbsPath.MakeLower();
+
+		// 2. 构建属性列表（可能追加 check 属性）
+		std::vector<CString> attrNames;
+		std::vector<SingleAttrFunc> attrFuncs;
+		for (auto& p : attributes) {
+			attrNames.push_back(p.first);
+			attrFuncs.push_back(p.second);
+		}
+
+		size_t checkAttrIndex = (size_t)-1;
+		if (checkFunc != nullptr) {
+			// 标准化检查扩展名
+			std::vector<CString> normCheckExts = checkExtensions;
+			for (auto& e : normCheckExts) {
+				e.MakeLower();
+				if (!e.IsEmpty() && e[0] != L'.') e = L"." + e;
+			}
+			attrNames.push_back(checkAttrName);
+			checkAttrIndex = attrNames.size() - 1;
+			attrFuncs.push_back([=](const CString& dllPath) -> CString {
+				CString ext = PathFindExtensionW(dllPath);
+				ext.MakeLower();
+				for (const auto& ve : normCheckExts)
+					if (ext == ve) return checkFunc(dllPath);
+				return L"";
+				});
+		}
+
+		// 3. 标准化扩展名过滤列表
+		std::vector<CString> normExts = extensions;
+		for (auto& e : normExts) {
+			e.MakeLower();
+			if (e != L"*.*" && !e.IsEmpty() && e[0] != L'.')
+				e = L"." + e;
+		}
+
+		// 4. 扫描目录，构建节点树
+		Node rootNode;
+		rootNode.name = L"";
+		rootNode.isDirectory = true;
+		rootNode.path = rootAbsPath;
+		ScanDirectory(root, rootNode, attrNames, attrFuncs, normExts, rootAbsPath, excludePatterns);
+
+		// 5. 分离正常 / 未通过检查的节点
+		std::vector<Node> normalChildren, uncheckedChildren;
+		if (checkFunc != nullptr) {
+			SeparateByCheck(rootNode, checkAttrName, normalChildren, uncheckedChildren, checkAttrIndex);
+		}
+		else {
+			normalChildren = std::move(rootNode.children);
+		}
+
+		// 6. 正常部分展平控制
+		if (!preserveHierarchy && !normalChildren.empty()) {
+			std::vector<Node> flat;
+			for (auto& child : normalChildren) {
+				if (child.isDirectory) CollectAllFiles(child, flat);
+				else flat.push_back(std::move(child));
+			}
+			normalChildren = std::move(flat);
+		}
+
+		// 7. 准备输出流
+		std::ostringstream oss;              // 完整 XML
+		std::ostringstream blockedOss;       // blocked 节点片段
+		std::ostringstream whitelistedOss;   // whitelisted 节点片段
+
+		// 8. 写入 BOM 和 XML 声明（UTF-8）
+		const unsigned char bom[] = { 0xEF, 0xBB, 0xBF };
+		oss.write(reinterpret_cast<const char*>(bom), sizeof(bom));
+		oss << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+
+		// 9. 根元素开始标签
+		oss << "<" << EscapeXml(rootElementName);
+		if (includeBase)
+			oss << " base=\"" << EscapeXml(rootAbsPath) << "\"";
+		oss << ">\n";
+
+		// 10. 输出正常文件节点
+		for (auto& child : normalChildren)
+			WriteXmlNode(oss, child, attrNames, 2, checkAttrIndex);
+
+		// 11. 处理未通过检查的文件节点
+		if (!uncheckedChildren.empty()) {
+			if (!uncheckedWhitelistPatterns.empty()) {
+				// ---------- 有白名单：拆分为 blocked 和 whitelisted ----------
+				std::vector<Node> blocked, whitelisted;
+				SeparateByWhitelist(uncheckedChildren, uncheckedWhitelistPatterns, blocked, whitelisted);
+
+				// 通用输出 Lambda：根据 isBlocked 标记写入不同流
+				auto outputGroup = [&](const std::vector<Node>& children,
+					const CString& tagName, bool isBlocked) {
+						if (children.empty()) return;  // 空组不输出
+
+						// 主 XML 流
+						oss << "  <" << EscapeXml(tagName) << ">\n";
+
+						// 对应的分离流
+						std::ostringstream& separateStream = isBlocked ? blockedOss : whitelistedOss;
+						separateStream << "<" << EscapeXml(tagName) << ">\n";
+
+						if (uncheckedPreserveHierarchy) {
+							for (const auto& child : children) {
+								WriteXmlNode(oss, child, attrNames, 4, checkAttrIndex);
+								WriteXmlNode(separateStream, child, attrNames, 2, checkAttrIndex);
+							}
+						}
+						else {
+							// 展平输出
+							Node groupRoot{ L"", true, L"", {}, children };
+							std::vector<Node> flat;
+							CollectAllFiles(groupRoot, flat);
+							for (auto& f : flat) {
+								WriteXmlNode(oss, f, attrNames, 4, checkAttrIndex);
+								WriteXmlNode(separateStream, f, attrNames, 2, checkAttrIndex);
+							}
+						}
+
+						oss << "  </" << EscapeXml(tagName) << ">\n";
+						separateStream << "</" << EscapeXml(tagName) << ">\n";
+					};
+
+				// ★ 分别输出两个组
+				outputGroup(blocked, uncheckedBlockedNodeName, true);
+				outputGroup(whitelisted, uncheckedWhitelistedNodeName, false);
+			}
+			else {
+				// ---------- 无白名单：全部视为 blocked ----------
+				oss << "  <" << EscapeXml(uncheckedNodeName) << ">\n";
+				blockedOss << "<" << EscapeXml(uncheckedNodeName) << ">\n";
+
+				if (uncheckedPreserveHierarchy) {
+					for (auto& child : uncheckedChildren) {
+						WriteXmlNode(oss, child, attrNames, 4, checkAttrIndex);
+						WriteXmlNode(blockedOss, child, attrNames, 2, checkAttrIndex);
+					}
+				}
+				else {
+					Node uncheckedRoot{ L"", true, L"", {}, std::move(uncheckedChildren) };
+					std::vector<Node> flat;
+					CollectAllFiles(uncheckedRoot, flat);
+					for (auto& f : flat) {
+						WriteXmlNode(oss, f, attrNames, 4, checkAttrIndex);
+						WriteXmlNode(blockedOss, f, attrNames, 2, checkAttrIndex);
+					}
+				}
+
+				oss << "  </" << EscapeXml(uncheckedNodeName) << ">\n";
+				blockedOss << "</" << EscapeXml(uncheckedNodeName) << ">\n";
+				// whitelistedOss 保持为空
+			}
+		}
+
+		// 12. 闭合根元素
+		oss << "</" << EscapeXml(rootElementName) << ">\n";
+
+		// 13. 获取完整 XML 字符串（UTF-8）
+		std::string utf8Xml = oss.str();
+
+		// 14. 写入磁盘文件（仅当 outputXmlPath 非空时）
+		if (!outputXmlPath.IsEmpty()) {
+			std::ofstream ofs(outputXmlPath.GetString(), std::ios::binary);
+			if (ofs)
+				ofs.write(utf8Xml.data(), utf8Xml.size());
+		}
+
+		// 15. 填充输出参数（如果有请求）
+		auto writeOutParam = [&](CString* out, std::ostringstream& stream) {
+			if (out) {
+				std::string str = stream.str();
+				if (!str.empty()) {
+					// 将 UTF-8 片段转换为宽字符 CString
+					*out = CString(CA2W(str.c_str(), CP_UTF8));
+				}
+				else {
+					*out = L"";
+				}
+			}
+			};
+		writeOutParam(outUncheckedBlockedXml, blockedOss);
+		writeOutParam(outUncheckedWhitelistedXml, whitelistedOss);
+
+		// 16. 返回完整 XML 字符串（含 BOM）
+		return CString(CA2W(utf8Xml.c_str(), CP_UTF8));
+	}
+
+	inline CString GenerateCreatorXml0(
+		const CString& rootPath,
+		const CString& outputXmlPath,
+		const std::vector<std::pair<CString, SingleAttrFunc>>& attributes,
+		const std::vector<CString>& extensions = { L".dll" },
+		bool preserveHierarchy = true,
+		const CString& rootElementName = L"dll_list",
+		const std::vector<CString>& excludePatterns = {},
+		bool includeBase = true,
+		SingleAttrFunc checkFunc = nullptr,
+		const std::vector<CString>& checkExtensions = {},
+		const CString& checkAttrName = L"EVCheck",
+		const CString& uncheckedNodeName = L"unchecked",
+		bool uncheckedPreserveHierarchy = true,
+		const std::vector<CString>& uncheckedWhitelistPatterns = {},
+		const CString& uncheckedBlockedNodeName = L"unchecked",
+		const CString& uncheckedWhitelistedNodeName = L"unchecked_whitelisted",
+		CString* outUncheckedBlockedXml = nullptr,   // ★ blocked 节点片段
+		CString* outUncheckedWhitelistedXml = nullptr // ★ whitelisted 节点片段
+	)
+	{
+		// 1. 根路径规范化
+		std::error_code ec;
+		fs::path root = fs::canonical(rootPath.GetString(), ec);
+		if (ec) {
+			root = fs::absolute(rootPath.GetString());
+			if (!fs::exists(root) || !fs::is_directory(root))
+				return CString();
+		}
+
+		CString rootAbsPath = root.wstring().c_str();
+		if (!rootAbsPath.IsEmpty() && rootAbsPath[rootAbsPath.GetLength() - 1] != L'\\')
+			rootAbsPath += L'\\';
+		rootAbsPath.MakeLower();
+
+		// 2. 构建属性列表（可能追加检查属性）
+		std::vector<CString> attrNames;
+		std::vector<SingleAttrFunc> attrFuncs;
+		for (auto& p : attributes) {
+			attrNames.push_back(p.first);
+			attrFuncs.push_back(p.second);
+		}
+
+		size_t checkAttrIndex = (size_t)-1;
+		if (checkFunc != nullptr) {
+			std::vector<CString> normCheckExts = checkExtensions;
+			for (auto& e : normCheckExts) {
+				e.MakeLower();
+				if (!e.IsEmpty() && e[0] != L'.') e = L"." + e;
+			}
+			attrNames.push_back(checkAttrName);
+			checkAttrIndex = attrNames.size() - 1;
+			attrFuncs.push_back([=](const CString& dllPath) -> CString {
+				CString ext = PathFindExtensionW(dllPath);
+				ext.MakeLower();
+				for (const auto& ve : normCheckExts)
+					if (ext == ve) return checkFunc(dllPath);
+				return L"";
+				});
+		}
+
+		// 3. 标准化扩展名
+		std::vector<CString> normExts = extensions;
+		for (auto& e : normExts) {
+			e.MakeLower();
+			if (e != L"*.*" && !e.IsEmpty() && e[0] != L'.')
+				e = L"." + e;
+		}
+
+		// 4. 扫描构建树
+		Node rootNode;
+		rootNode.name = L"";
+		rootNode.isDirectory = true;
+		rootNode.path = rootAbsPath;
+		ScanDirectory(root, rootNode, attrNames, attrFuncs, normExts, rootAbsPath, excludePatterns);
+
+		// 5. 分离正常 / 未通过检查的节点
+		std::vector<Node> normalChildren, uncheckedChildren;
+		if (checkFunc != nullptr) {
+			SeparateByCheck(rootNode, checkAttrName, normalChildren, uncheckedChildren, checkAttrIndex);
+		}
+		else {
+			normalChildren = std::move(rootNode.children);
+		}
+
+		// 6. 正常部分展平控制
+		if (!preserveHierarchy && !normalChildren.empty()) {
+			std::vector<Node> flat;
+			for (auto& child : normalChildren) {
+				if (child.isDirectory) CollectAllFiles(child, flat);
+				else flat.push_back(std::move(child));
+			}
+			normalChildren = std::move(flat);
+		}
+
+		// 7. 准备输出流
+		std::ostringstream oss;              // 完整 XML
+		std::ostringstream blockedOss;       // blocked 节点片段（传给 outUncheckedBlockedXml）
+		std::ostringstream whitelistedOss;   // whitelisted 节点片段（传给 outUncheckedWhitelistedXml）
+
+		// 8. BOM 和 XML 声明
+		const unsigned char bom[] = { 0xEF, 0xBB, 0xBF };
+		oss.write(reinterpret_cast<const char*>(bom), sizeof(bom));
+		oss << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+
+		// 9. 根元素开始标签
+		oss << "<" << EscapeXml(rootElementName);
+		if (includeBase)
+			oss << " base=\"" << EscapeXml(rootAbsPath) << "\"";
+		oss << ">\n";
+
+		// 10. 输出正常文件
+		for (auto& child : normalChildren)
+			WriteXmlNode(oss, child, attrNames, 2, checkAttrIndex);
+
+		// 11. 处理未通过检查的文件
+		if (!uncheckedChildren.empty()) {
+			if (!uncheckedWhitelistPatterns.empty()) {
+				// ------ 有白名单：拆分为 blocked 和 whitelisted ------
+				std::vector<Node> blocked, whitelisted;
+				SeparateByWhitelist(uncheckedChildren, uncheckedWhitelistPatterns, blocked, whitelisted);
+
+				// 通用输出 Lambda：根据 isBlocked 标记写入不同的流
+				auto outputGroup = [&](const std::vector<Node>& children,
+					const CString& tagName, bool isBlocked) {
+						if (children.empty()) return;
+
+						// 主 XML 流
+						oss << "  <" << EscapeXml(tagName) << ">\n";
+
+						// 对应的分离流
+						std::ostringstream& separateStream = isBlocked ? blockedOss : whitelistedOss;
+						separateStream << "<" << EscapeXml(tagName) << ">\n";
+
+						if (uncheckedPreserveHierarchy) {
+							for (const auto& child : children) {
+								WriteXmlNode(oss, child, attrNames, 4, checkAttrIndex);
+								WriteXmlNode(separateStream, child, attrNames, 2, checkAttrIndex);
+							}
+						}
+						else {
+							// 展平
+							Node groupRoot{ L"", true, L"", {}, children };
+							std::vector<Node> flat;
+							CollectAllFiles(groupRoot, flat);
+							for (auto& f : flat) {
+								WriteXmlNode(oss, f, attrNames, 4, checkAttrIndex);
+								WriteXmlNode(separateStream, f, attrNames, 2, checkAttrIndex);
+							}
+						}
+
+						oss << "  </" << EscapeXml(tagName) << ">\n";
+						separateStream << "</" << EscapeXml(tagName) << ">\n";
+					};
+
+				// ★ 分别输出，空组自动跳过
+				outputGroup(blocked, uncheckedBlockedNodeName, true);
+				outputGroup(whitelisted, uncheckedWhitelistedNodeName, false);
+			}
+			else {
+				// ------ 无白名单：全部视为 blocked，输出一个 unchecked 节点 ------
+				oss << "  <" << EscapeXml(uncheckedNodeName) << ">\n";
+				blockedOss << "<" << EscapeXml(uncheckedNodeName) << ">\n";
+
+				if (uncheckedPreserveHierarchy) {
+					for (auto& child : uncheckedChildren) {
+						WriteXmlNode(oss, child, attrNames, 4, checkAttrIndex);
+						WriteXmlNode(blockedOss, child, attrNames, 2, checkAttrIndex);
+					}
+				}
+				else {
+					Node uncheckedRoot{ L"", true, L"", {}, std::move(uncheckedChildren) };
+					std::vector<Node> flat;
+					CollectAllFiles(uncheckedRoot, flat);
+					for (auto& f : flat) {
+						WriteXmlNode(oss, f, attrNames, 4, checkAttrIndex);
+						WriteXmlNode(blockedOss, f, attrNames, 2, checkAttrIndex);
+					}
+				}
+
+				oss << "  </" << EscapeXml(uncheckedNodeName) << ">\n";
+				blockedOss << "</" << EscapeXml(uncheckedNodeName) << ">\n";
+				// 注意：此时 whitelistedOss 为空（无 whitelisted 文件）
+			}
+		}
+
+		// 12. 闭合根元素
+		oss << "</" << EscapeXml(rootElementName) << ">\n";
+
+		// 13. 获取 UTF-8 字符串
+		std::string utf8Xml = oss.str();
+
+		// 14. 如果 outputXmlPath 非空，写入文件
+		if (!outputXmlPath.IsEmpty()) {
+			std::ofstream ofs(outputXmlPath.GetString(), std::ios::binary);
+			if (ofs)
+				ofs.write(utf8Xml.data(), utf8Xml.size());
+		}
+
+		// 15. 填充输出参数（如果有请求）
+		auto writeOutParam = [&](CString* out, std::ostringstream& stream) {
+			if (out) {
+				std::string str = stream.str();
+				*out = str.empty() ? CString() : CString(CA2W(str.c_str(), CP_UTF8));
+			}
+			};
+		writeOutParam(outUncheckedBlockedXml, blockedOss);
+		writeOutParam(outUncheckedWhitelistedXml, whitelistedOss);
+
+		// 16. 返回完整 XML 字符串
+		return CString(CA2W(utf8Xml.c_str(), CP_UTF8));
+	}
+} // namespace Creator
+
 class ResourceReader {
 private:
 	HMODULE m_hModule;
@@ -755,9 +2896,14 @@ public:
 //	std::string externalText = externalReader.GetTextResource(201, L"XML");
 //}
 
+HANDLE g_hEvent = nullptr;
+HANDLE g_hEvent2 = nullptr;
+// 创建多目录监控管理器
+//CreatorMonitor::CMultiDirectoryMonitor monitor;
+CreatorMonitor::CDirectoryMonitor monitor;
+
 CSpaceTelescope::CSpaceTelescope()
 {
-	m_nNativeAppType = -1;
 	m_nWebRTRunModel = WebRTRunModel::WebRTModel;
 	m_pCurrentIPCMsg = nullptr;
 	m_pMainWnd = nullptr;
@@ -765,6 +2911,7 @@ CSpaceTelescope::CSpaceTelescope()
 	m_pClrCoreHost = nullptr;
 	m_nJVMVersion = JNI_VERSION_10;
 	m_bIsWin7 = false;
+	m_bAgentModel = false;
 	m_bEnableAllDllInject = false;
 	m_bIsClrCoreApp = false;
 	m_bMainWndNotFound = false;
@@ -782,7 +2929,26 @@ CSpaceTelescope::CSpaceTelescope()
 	m_pHostHtmlWnd = nullptr;
 	m_pHtmlWndCreated = nullptr;
 	m_strAppXml = _T("");
+	m_strCmdLine = _T("");
+	m_strProductName = _T("");
+	m_strCompanyName = _T("");
+	m_strCreatorMonitorExt = _T("");
+	m_strCreatorAppData = _T("");
+	m_strCreatorAgentData = _T("");
+	m_strCreatorAppInitData = _T("");
+	m_strCreatorAppKey = _T("");
+	m_strCreatorAgentKey = _T("");
+	m_strCreatorAppUnSignedData = _T("");
+	m_strCreatorAgentUnSignedData = _T("");
+	m_strCreatorAppWhiteListData = _T("");
+	m_strCreatorAgentWhiteListData = _T("");
+
+	m_strCreatorAppCheckExt = _T("");
+	m_strCreatorAgentCheckExt = _T("");
+	m_strCreatorEvSignCheckExt = _T("");
+
 	m_strProbePaths = _T("");
+	m_strCommonDataDir = _T("");
 	m_strDefaultXml = _T("<default><nucleus><xobj name=\"tangram\" objid=\"nucleus\"/></nucleus></default>");
 	m_strDefaultNtpXml = _T("<ntp><nucleus><xobj id='grid' rows='1' cols='2' width='350,350,' splitterwidth='6'>");
 	m_strDefaultNtpXml += _T("<xobj objid='Universe.WebRTNtpCtrl,Cosmos'></xobj>");
@@ -864,6 +3030,8 @@ CSpaceTelescope::CSpaceTelescope()
 #else
 	m_bCommercialEdition = true;
 #endif
+
+	m_dwThreadID = ::GetCurrentThreadId();
 	//m_bCommercialEdition = false;
 }
 
@@ -955,34 +3123,20 @@ CertificateInfo CSpaceTelescope::GetSignatureInfoFromFile(const wchar_t* filePat
 }
 
 bool CSpaceTelescope::VerfyEVSHASign(CString strFile) {
-	if (m_bEnableAllDllInject)
+	CString strAppCLRWorkSpacePath = m_strAgentPath + m_strExeName + _T("WorkSpace.Net.dll");
+	if (m_bEnableAllDllInject || strFile.CompareNoCase(strAppCLRWorkSpacePath) == 0)
 		return true;
 	int nPos = strFile.ReverseFind(_T('\\'));
 	if (nPos != -1)
 	{
-		CString strName = strFile.Mid(nPos + 1).MakeLower();
-		auto it0 = m_mapCheckedWhiteList.find(strName);
-		if (it0 != m_mapCheckedWhiteList.end())
+		CString strPath = strFile.MakeLower();
+		strPath = strPath.Left(nPos + 1);
+		auto it = m_mapAppWhiteListDic.find(strPath);
+		if (it != m_mapAppWhiteListDic.end()) {
 			return true;
-		auto it = m_mapWhiteList.find(strName);
-		if (it != m_mapWhiteList.end())
-		{
-			CString strSHA = it->second;
-			CertificateInfo info = GetSignatureInfoFromFile(strFile);
-			if (info.isEV) {
-				BYTE calculatedHash[SHA256_DIGEST_LENGTH];
-				if (CalculateFileSHA256(strFile, calculatedHash)) {
-					wstring s = HashToHexWString(calculatedHash, SHA256_DIGEST_LENGTH);
-					CString strSHA2 = s.c_str();
-					if (strSHA2 == strSHA) {
-						m_mapCheckedWhiteList[strName] = strSHA2;
-						return true;
-					}
-				}
-			}
 		}
 	}
-	return false;
+	return EvCheck::IsEVSigned(strFile);
 }
 
 bool CSpaceTelescope::CompareFileEVSignatures(CString strFile1, CString strFile2) {
@@ -991,87 +3145,6 @@ bool CSpaceTelescope::CompareFileEVSignatures(CString strFile1, CString strFile2
 	bool bSame = CompareFileSignatures(LPCTSTR(strFile1), LPCTSTR(strFile2), LEVEL_STRICT);
 	return bSame;
 }
-
-void CSpaceTelescope::GetEnableAllDllInjectInfo() {
-	if (m_mapWhiteList.size() == 0 && !m_bEnableAllDllInject) {
-		CString strWhiteListFile = m_strAppPath + m_strAppName + _T("WhiteList.dll");
-		if (::PathFileExists(strWhiteListFile)) {
-			CertificateInfo info = GetSignatureInfoFromFile(strWhiteListFile);
-			if (info.isEV) {
-				if (m_pCLRProxy) {
-					m_bEnableAllDllInject = false;
-					CString strXml = _T("");
-					m_pCLRProxy->CosmosAction(CComBSTR("GetSignData"), nullptr);
-					auto it = this->m_mapValInfo.find(_T("whitelist"));
-					if (it != m_mapValInfo.end())
-					{
-						strXml = OLE2T(it->second.bstrVal);
-						it->second.Clear();
-						m_mapValInfo.erase(_T("whitelist"));
-					}
-					else
-					{
-						strXml = GetTextResource(strWhiteListFile, 1000, _T("whitelist"));
-					}
-					if (strXml != _T("")) {
-						CTangramXmlParse m_Parse;
-						if (m_Parse.LoadXml(strXml))
-						{
-							CTangramXmlParse* pParse = m_Parse.GetChild(_T("whitelist"));
-							if (pParse) {
-								for (int i = 0; i < pParse->GetCount(); i++) {
-									CTangramXmlParse* pChildParse = pParse->GetChild(i);
-									m_mapWhiteList[pChildParse->name().MakeLower()] = pChildParse->attr(_T("SHA256"), _T(""));
-								}
-							}
-						}
-					}
-				}
-			}
-			else {
-				m_bEnableAllDllInject = true;
-			}
-		}
-	}
-}
-
-//BOOL DeleteDirectory(CString DirName)
-//{
-//	//	CFileFind tempFind;
-//	WIN32_FIND_DATA FindFileData;
-//	ZeroMemory(&FindFileData, sizeof(WIN32_FIND_DATA));
-//	HANDLE hFile = FindFirstFile(DirName, &FindFileData);
-//	BOOL IsFind = TRUE;
-//	while (IsFind)
-//	{
-//		IsFind = FindNextFile(hFile, &FindFileData);
-//		if ((_tcscmp(FindFileData.cFileName, _T("."))) &&
-//			(_tcscmp(FindFileData.cFileName, _T(".."))))
-//		{
-//			CString strFileName = DirName + FindFileData.cFileName;
-//			CString strTemp;
-//			strTemp = strFileName;
-//			if (::PathIsDirectory(strFileName))
-//			{
-//				strTemp += _T("\\";)
-//				DeleteDirectory(strTemp);
-//			}
-//			else
-//			{
-//			::MessageBox(NULL, strTemp, L"", MB_OK);
-//				DeleteFile(strTemp);
-//			}
-//		}
-//	}
-//	FindClose(hFile);
-//
-//	BOOL bRet = RemoveDirectory(DirName);
-//	if (bRet == 0)
-//	{
-//		return FALSE;
-//	}
-//	return TRUE;
-//}
 
 BOOL CSpaceTelescope::CopyFolder(CString strSrcPath, CString strDesPath)
 {
@@ -1153,194 +3226,27 @@ void CSpaceTelescope::Init()
 	static bool bInit = false;
 	if (bInit)
 		return;
+	g_hEvent = CreateEvent(
+		NULL,           // 安全属性（默认）
+		TRUE,           // TRUE = 手动重置事件；FALSE = 自动重置
+		FALSE,          // 初始状态为无信号（未触发）
+		NULL            // 事件名称（可为 NULL 表示匿名）
+	);
 
-	HANDLE hModuleSnap = INVALID_HANDLE_VALUE;
-	MODULEENTRY32 me32{};
-
-	//  Take a snapshot of all modules in the specified process. 
-	hModuleSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, ::GetCurrentProcessId());
-
-	//  Set the size of the structure before using it. 
-	me32.dwSize = sizeof(MODULEENTRY32);
-
-	//  Retrieve information about the first module, 
-	//  and exit if unsuccessful 
-	if (!Module32First(hModuleSnap, &me32))
+	if (g_hEvent == NULL)
 	{
-		CloseHandle(hModuleSnap);     // Must clean up the snapshot object! 
+		return;
 	}
+	g_hEvent2 = CreateEvent(
+		NULL,           // 安全属性（默认）
+		TRUE,           // TRUE = 手动重置事件；FALSE = 自动重置
+		FALSE,          // 初始状态为无信号（未触发）
+		NULL            // 事件名称（可为 NULL 表示匿名）
+	);
 
-	int nIndex = 0;
-	//  Now walk the module list of the process, 
-	do
+	if (g_hEvent2 == NULL)
 	{
-		CString strModuleName = me32.szModule;
-		CString strMessage = _T("");
-		strMessage.Format(_T("Module Index: %d, Module Name: %s\n"), nIndex++, strModuleName);
-		OutputDebugString(strMessage);
-		if (strModuleName.CompareNoCase(_T("MSCOREE.dll")) == 0 || strModuleName.CompareNoCase(_T("hostfxr.dll")) == 0) {
-			if ((nIndex == 18 || nIndex < 5)) {
-				if (nIndex < 5)
-					m_nNativeAppType = 20; //CLRApp
-				else
-					m_nNativeAppType = 30; //.NET CoreApp
-				//CloseHandle(hModuleSnap);
-				break;
-			}
-		}
-		if (strModuleName.CompareNoCase(_T("mfc140u.dll")) == 0) {
-			m_nNativeAppType = 1;
-			break;
-			//if ((nIndex < 10 || nIndex < 22)) {
-			//	if (nIndex < 10)
-			//		m_nNativeAppType = 1;
-			//	else
-			//		m_nNativeAppType = 2;
-			//	//CloseHandle(hModuleSnap);
-			//	break;
-			//}
-		}
-		if (strModuleName.CompareNoCase(_T("mfc140ud.dll")) == 0) {
-			m_nNativeAppType = 2;
-			break;
-			//if ((nIndex < 10 || nIndex < 22)) {
-			//	if (nIndex < 10)
-			//		m_nNativeAppType = 1;
-			//	else
-			//		m_nNativeAppType = 2;
-			//	//CloseHandle(hModuleSnap);
-			//	break;
-			//}
-		}
-		if (strModuleName.CompareNoCase(_T("AIAgent.dll")) == 0) {
-			//CloseHandle(hModuleSnap);
-			break;
-		}
-	} while (Module32Next(hModuleSnap, &me32));
-	//  Do not forget to clean up the snapshot object. 
-	CloseHandle(hModuleSnap);
-
-	bool bCompatibilityWin10 = false;
-	HMODULE hModule = ::GetModuleHandle(NULL);
-	HRSRC hRsrc = FindResource(hModule, MAKEINTRESOURCE(1), RT_MANIFEST);
-	if (hRsrc) {
-		HGLOBAL hGlobal = LoadResource(hModule, hRsrc);
-		if (hGlobal != NULL) {
-			LPBYTE lpBuffer = (LPBYTE)LockResource(hGlobal);
-			if (lpBuffer) {
-				CString strData = _T("");
-				DWORD dwSize = SizeofResource(hModule, hRsrc);
-				HGLOBAL hNew = ::GlobalAlloc(GHND, dwSize);
-				if (hNew) {
-					LPBYTE lpByte = (LPBYTE)::GlobalLock(hNew);
-					::memcpy(lpByte, hGlobal, dwSize);
-					strData = (CString)lpByte;
-					int nPos = strData.Find(_T("<assembly"));
-					if (nPos != -1)
-						strData = strData.Mid(nPos);
-					if (strData.Find(GUID_Compatibility_Win10) != -1) {
-						CTangramXmlParse m_Parse;
-						if (m_Parse.LoadXml(strData)) {
-							CTangramXmlParse* pCompatibilityParse = m_Parse.GetChild(_T("compatibility"));
-							if (pCompatibilityParse == NULL)
-								pCompatibilityParse = m_Parse.GetChild(_T("ms_compatibility:compatibility"));
-							if (pCompatibilityParse)
-							{
-								CTangramXmlParse* pAppParse = pCompatibilityParse->GetChild(_T("application"));
-								if (pAppParse == NULL)
-									pAppParse = pCompatibilityParse->GetChild(_T("ms_compatibility:application"));
-								if (pAppParse) {
-									int nCount = pAppParse->GetCount();
-									for (int nIndex = 0; nIndex < nCount; nIndex++) {
-										CTangramXmlParse* pChild = pAppParse->GetChild(nIndex);
-										if (pChild->attr(_T("Id"), _T("")) == GUID_Compatibility_Win10) {
-											bCompatibilityWin10 = true;
-											break;
-										}
-									}
-								}
-							}
-						}
-					}
-					::GlobalUnlock(hNew);
-					GlobalFree(hNew);
-				}
-				if (hGlobal)
-					::FreeResource(hGlobal);
-			}
-		}
-	}
-
-	if (bCompatibilityWin10 == false) {
-		CString g_strCfgDataFile = BuildConfigDataFile(_T("Creator"), _T("Creator"), _T("Tangram Team"));
-		if (::PathFileExists(g_strCfgDataFile))
-		{
-			CString strData = _T("");
-			wifstream fin(g_strCfgDataFile, wifstream::binary);
-			std::wstringstream stream;
-			stream << fin.rdbuf();
-			strData = stream.str().c_str();
-			fin.close();
-			int nPos = strData.Find(_T("AIGCAgent"));
-			if (nPos != -1) {
-				CString strTemp = strData.Mid(nPos + 9);
-				nPos = strTemp.Find(_T(".dll"));
-				strTemp = strTemp.Left(nPos + 4);
-				nPos = strTemp.Find(_T(":"));
-				CString _strChromeRTFilePath = strTemp.Mid(nPos - 1);
-				if (::PathFileExists(_strChromeRTFilePath) == false)
-					_strChromeRTFilePath = _T("");
-				else {
-					nPos = _strChromeRTFilePath.ReverseFind('\\');
-					_strChromeRTFilePath = _strChromeRTFilePath.Left(nPos + 1);
-					_strChromeRTFilePath += _T("Creator.exe");
-					if (::PathFileExists(_strChromeRTFilePath)) {
-						bool bBrowserExists = false;
-						HANDLE hProcessSnap;
-						PROCESSENTRY32 pe32{};
-						hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-						if (hProcessSnap == INVALID_HANDLE_VALUE) {
-
-						}
-						// Set the size of the structure before using it.
-						pe32.dwSize = sizeof(PROCESSENTRY32);
-						int nCount2 = 0;
-						bool bFind = false;
-						// Retrieve information about the first process,
-						if (!Process32First(hProcessSnap, &pe32))
-						{
-							CloseHandle(hProcessSnap);          // clean the snapshot object
-						}
-						do
-						{
-							CString strName = pe32.szExeFile;
-							if (strName.CompareNoCase(_T("Creator.exe")) == 0) {
-								bBrowserExists = true;
-								break;
-							}
-						} while (Process32Next(hProcessSnap, &pe32));
-						CloseHandle(hProcessSnap);
-
-						if (!bBrowserExists) {
-							STARTUPINFO  si;
-							PROCESS_INFORMATION process_info;
-							ZeroMemory(&si, sizeof(si));
-							si.cb = sizeof(si);
-							BOOL  bReturnVal = CreateProcess(_strChromeRTFilePath,
-								NULL,
-								NULL,           // Process handle not inheritable
-								NULL,           // Thread handle not inheritable
-								FALSE,          // Set handle inheritance to FALSE
-								NORMAL_PRIORITY_CLASS,              // No creation flags
-								NULL,           // Use parent's environment block
-								NULL,           // Use parent's starting directory 
-								&si,            // Pointer to STARTUPINFO structure
-								&process_info);
-						}
-					}
-				}
-			}
-		}
+		return;
 	}
 
 	bInit = true;
@@ -1366,28 +3272,13 @@ void CSpaceTelescope::Init()
 	m_strProgramFilePath = m_szBuffer;
 
 	m_mapValInfo[_T("apppath")] = CComVariant(m_strAppPath);
+	m_mapValInfo[_T("appagentpath")] = CComVariant(m_strAgentPath);
 	m_mapValInfo[_T("appdatapath")] = CComVariant(m_strAppDataPath);
 	m_mapValInfo[_T("appdatafile")] = CComVariant(m_strConfigDataFile);
 	m_mapValInfo[_T("appname")] = CComVariant(m_strExeName);
 	m_mapValInfo[_T("appkey")] = CComVariant(m_strAppKey);
 
-	CString strWebPage = m_strAppPath + m_strExeName + _T(".app.html");
-	if (::PathFileExists(strWebPage)) {
-		CString strPath = m_strAppPath + _T("cosmos.dll");
-		if (::PathFileExists(strPath) == false)
-		{
-			CString strPath2 = m_strWebRTPath + _T("cosmos.dll");
-			if (::PathFileExists(strPath2)) {
-				CopyFile(strPath2, strPath, true);
-			}
-		}
-	}
-	//auto task = create_task([this]()
-//	{
-//		CString strRet = GetFileMD5(L"D:\\AIGCAssistant\\universe.dll");
-//		::MessageBox(NULL, strRet, L"", MB_OK);
-//		return 0;
-//	});
+	CString strWebPage = m_strAgentPath + m_strExeName + _T(".app.html");
 	if (m_nAppID != 9)
 	{
 		WebRTInit();
@@ -1396,11 +3287,9 @@ void CSpaceTelescope::Init()
 
 
 	CString _strPath = _T("");
-	_strPath = m_strAppPath + m_strExeName + _T("InitData\\");
+	_strPath = m_strAgentPath + m_strExeName + _T("InitData\\");
 	if (::PathIsDirectory(_strPath))
 	{
-		//auto task = create_task([this, _strPath]()
-		//{
 		CTangramXmlParse m_Parse;
 		CTangramXmlParse* pZipXobj = nullptr;
 		BOOL b = m_Parse.LoadFile(m_strConfigDataFile);
@@ -1492,17 +3381,6 @@ void CSpaceTelescope::Init()
 
 CSpaceTelescope::~CSpaceTelescope()
 {
-	//if (m_pCurMDIChildFormInfo)
-	//	delete m_pCurMDIChildFormInfo;
-	//if (m_mapProcessInfo.size()) {
-	//	for (auto& it : m_mapProcessInfo) {
-	//		CString strInfo = _T("");
-	//		strInfo.Format(_T("%s.."), CString(it.second->szExeFile));
-	//		OutputDebugString(strInfo);
-	//		delete it.second;
-	//	}
-	//	m_mapProcessInfo.clear();
-	//}
 	if (m_hWebRTToken)
 		CloseHandle(m_hWebRTToken);
 	m_pCurMDIChildFormInfo = nullptr;
@@ -2047,14 +3925,501 @@ BOOL CSpaceTelescope::LoadImageFromResource(ATL::CImage* pImage, HMODULE hMod, U
 	return true;
 }
 
+static CString g_strlastInfo = _T("");
+void CSpaceTelescope::OnMonitorNotify(CString strInfo, int nAction) {
+	if (g_strlastInfo.CompareNoCase(strInfo) == 0)
+		return;
+	g_strlastInfo = strInfo;
+	int nRet = -1;
+	CString str = _T("");
+	switch (nAction) {
+	case FILE_ACTION_ADDED: {
+		int nPos = strInfo.ReverseFind('\\');
+		CString strPath = strInfo.Left(nPos + 1);
+		auto it = m_mapAppWhiteListDic.find(strPath);
+		if (it != m_mapAppWhiteListDic.end())
+		{
+			m_bEnableAllDllInject = true;
+			break;
+		}
+		str.Format(_T("The File: \"%s\" was copyed to application folder"), strInfo);
+	}
+						  break;
+	case FILE_ACTION_REMOVED:
+		str.Format(_T("The File: \"%s\" was deleted in application folder"), strInfo);
+		break;
+	case FILE_ACTION_MODIFIED:
+		str.Format(_T("The File: \"%s\" was modified in application folder"), strInfo);
+		break;
+	case FILE_ACTION_RENAMED_NEW_NAME:
+	case FILE_ACTION_RENAMED_OLD_NAME:
+		str.Format(_T("The File: \"%s\" was renamed in application folder"), strInfo);
+		break;
+	default:
+		str = _T("");
+		break;
+	}
+
+	if (str.IsEmpty() == false) {
+		// 配置 TASKDIALOGCONFIG
+		TASKDIALOGCONFIG tdc = { 0 };
+		tdc.cbSize = sizeof(tdc);
+		tdc.hwndParent = m_hMainWnd;
+		// 父窗口句柄（NULL 表示没有父窗口）
+		if (!::IsWindow(m_hMainWnd))
+			tdc.hwndParent = GetForegroundWindow();
+
+		// 重要：不要设置 TDF_SIZE_TO_CONTENT，否则 cxWidth 会被忽略
+		tdc.dwFlags = TDF_SIZE_TO_CONTENT | TDF_ALLOW_DIALOG_CANCELLATION;  // 允许用户按 ESC 关闭
+		// 也可以什么都不设：tdc.dwFlags = 0;
+
+		tdc.pszWindowTitle = L"Current Application Whill Be Closed";
+		tdc.pszMainInstruction = L"Find UnTrusted File Action in Main Application:\r\n";
+		tdc.pszContent = str;
+
+		// **** 在这里设置你想要的宽度（单位：像素） ****
+		tdc.cxWidth = 300;
+
+		// 定义普通按钮
+		TASKDIALOG_BUTTON buttons[] = {
+		{ IDYES, L"是(&Y)" },
+		{ IDNO,  L"否(&N)" },
+		};
+		tdc.pButtons = buttons;
+		tdc.cButtons = ARRAYSIZE(buttons);
+		tdc.nDefaultButton = IDYES;
+
+		// 可选：自定义图标（也可以使用系统图标，如 TD_INFORMATION_ICON）
+		tdc.pszMainIcon = TD_INFORMATION_ICON;
+
+		// 调用 TaskDialogIndirect
+		int nClickedButton = 0;
+		HRESULT hr = TaskDialogIndirect(&tdc, &nClickedButton, NULL, NULL);
+		if (SUCCEEDED(hr))
+		{
+			switch (nClickedButton)
+			{
+			case IDYES: {
+				if (::IsWindow(g_pSpaceTelescope->m_hMainWnd))
+				{
+					monitor.Stop();
+					::SetParent(g_pSpaceTelescope->m_hCosmosWnd, g_pSpaceTelescope->m_hMainWnd);
+					::PostMessageW(g_pSpaceTelescope->m_hMainWnd, WM_CLOSE, 0, 0);
+					::PostQuitMessage(0);
+				}
+			}
+					  break;
+			case IDNO:
+				break;
+			case IDCANCEL:
+				break;
+			}
+		}
+		//nRet = ::MessageBox(g_pSpaceTelescope->m_hMainWnd, str, L"Current Application Whill Be Closed", MB_YESNO | MB_ICONWARNING | MB_SYSTEMMODAL);
+		//if (nRet == IDYES) {
+		//	if (::IsWindow(g_pSpaceTelescope->m_hMainWnd))
+		//	{
+		//		monitor.StopAll();
+		//		::SetParent(g_pSpaceTelescope->m_hCosmosWnd, g_pSpaceTelescope->m_hMainWnd);
+		//		::PostMessageW(g_pSpaceTelescope->m_hMainWnd, WM_CLOSE, 0, 0);
+		//		::PostQuitMessage(0);
+		//	}
+		//}
+	}
+	m_bEnableAllDllInject = true;
+}
+
+void CSpaceTelescope::VerifyandMonitorInit() {
+	// 设置强 ACL（阻止普通用户写入/删除）
+	//CreatorMonitor::SetSecureDirectoryAcl(m_strAgentPath);
+	//CreatorMonitor::SetSecureDirectoryAcl(m_strAppPath);
+
+	// ★ 启用文件夹事件监控：
+	monitor.SetWatchDirectories(true);
+	// 设置安全验证回调（例如验证数字签名）
+	monitor.SetVerifyCallback([](const CString& path, int nAction) -> bool {
+		if (nAction == FILE_ACTION_ADDED) {
+			DWORD attr = GetFileAttributes(path);
+			if (attr & FILE_ATTRIBUTE_DIRECTORY)
+				ATLTRACE(L"新文件夹: %s\n", path);
+			else
+				ATLTRACE(L"新文件: %s\n", path);
+		}
+		else if (nAction == FILE_ACTION_REMOVED) {
+			// 注意：已删除的项目可能无法获取属性，需在回调中自行判断
+			ATLTRACE(L"已删除: %s\n", path);
+		}
+
+		/*
+			// 1. 白名单路径：某些目录（如更新临时目录）可以在后续被更新组件重命名安装，
+			//    可暂时放行，但要结合签名校验。
+			// 2. 数字签名验证
+			if (!VerifyEmbeddedSignature(filePath)) {
+				// 签名无效或不存在 -> 高度可疑
+				LogSecurityEvent(L"Unsigned DLL detected", filePath);
+				QuarantineFile(filePath);   // 移动到隔离区或直接删除
+				return false;               // 通知监控系统：此文件不安全
+			}
+			// 3. 签名者证书检查（必须是本公司的证书）
+			if (!IsSignatureFromMyCompany(filePath)) {
+				LogSecurityEvent(L"DLL signed by untrusted entity", filePath);
+				QuarantineFile(filePath);
+				return false;
+			}
+			// 4. 可选：哈希白名单二次确认
+			if (!IsInKnownGoodHashList(filePath)) {
+				// 可能是合法但未登记的新版本 DLL，建议记录并允许，或根据策略决定
+				LogSecurityEvent(L"Unknown but signed DLL", filePath);
+				// 如果 Agent 有自动更新机制，这里可以接受；否则可拒绝并等待人工审查
+			}
+			return true; // 安全
+			*/
+
+			// TODO: 实现真正的签名校验或哈希比对
+		if (g_pSpaceTelescope)
+			g_pSpaceTelescope->OnMonitorNotify(path, nAction);
+		return true; // 暂时放行
+		});
+
+	// 添加要监控的扩展名
+	while (m_strCreatorMonitorExt.Find(_T(",,")) != -1)
+		m_strCreatorMonitorExt.Replace(_T(",,"), _T(","));
+	while (m_strCreatorMonitorExt.Find(_T("..")) != -1)
+		m_strCreatorMonitorExt.Replace(_T(".."), _T("."));
+	m_strCreatorMonitorExt.Replace(_T(",,"), _T(","));
+	if (!m_strCreatorMonitorExt.IsEmpty()) {
+		CString strTest = _T("");
+		int nPos = 0;
+		CString strSource = m_strCreatorMonitorExt;
+		CString strToken = strSource.Tokenize(_T(","), nPos);
+
+		while (!strToken.IsEmpty())
+		{
+			CString strKey = _T("***") + strToken + _T("***");
+			if (strTest.Find(strKey) == -1) {
+				monitor.AddExtension(strToken);
+				strTest += strKey;
+			}
+			strToken = strSource.Tokenize(_T(","), nPos);
+		}
+	}
+
+	// 添加多个需要监控的目录
+	monitor.Start(m_strAppPath, true);
+	monitor.AddDirectory(m_strAgentPath, true);
+
+	while (m_strCreatorAppWhiteListData.Find(_T(",,")) != -1)
+		m_strCreatorAppWhiteListData.Replace(_T(",,"), _T(","));
+	while (m_strCreatorAppWhiteListData.Find(_T("..")) != -1)
+		m_strCreatorAppWhiteListData.Replace(_T(".."), _T("."));
+	while (m_strCreatorAppWhiteListData.Find(_T("\\\\")) != -1)
+		m_strCreatorAppWhiteListData.Replace(_T("\\\\"), _T("\\"));
+
+	while (m_strCreatorAgentWhiteListData.Find(_T(",,")) != -1)
+		m_strCreatorAgentWhiteListData.Replace(_T(",,"), _T(","));
+	while (m_strCreatorAgentWhiteListData.Find(_T("..")) != -1)
+		m_strCreatorAgentWhiteListData.Replace(_T(".."), _T("."));
+	while (m_strCreatorAgentWhiteListData.Find(_T("\\\\")) != -1)
+		m_strCreatorAgentWhiteListData.Replace(_T("\\\\"), _T("\\"));
+	int nPos = 0;
+	CString strSource = m_strCreatorAppWhiteListData;
+	if (!m_strCreatorAppWhiteListData.IsEmpty()) {
+		CString strToken = strSource.Tokenize(_T(","), nPos);
+		while (!strToken.IsEmpty())
+		{
+			CString strPath = m_strAppPath + strToken + _T("\\");
+			strPath.Replace(_T("\\\\"), _T("\\"));
+			strPath = strPath.MakeLower();
+			if (::PathIsDirectory(strPath)) {
+				auto it = m_mapAppWhiteListDic.find(strPath);
+				if (it == m_mapAppWhiteListDic.end())
+					m_mapAppWhiteListDic[strPath] = _T("");
+			}
+			strToken = strSource.Tokenize(_T(","), nPos);
+		}
+	}
+	if (!m_strCreatorAgentWhiteListData.IsEmpty()) {
+		nPos = 0;
+		strSource = m_strCreatorAgentWhiteListData;
+		CString strToken = strSource.Tokenize(_T(","), nPos);
+
+		while (!strToken.IsEmpty())
+		{
+			CString strPath = m_strAgentPath + strToken + _T("\\");
+			strPath.Replace(_T("\\\\"), _T("\\"));
+			strPath = strPath.MakeLower();
+			if (::PathIsDirectory(strPath)) {
+				auto it = m_mapAppWhiteListDic.find(strPath);
+				if (it == m_mapAppWhiteListDic.end())
+					m_mapAppWhiteListDic[strPath] = _T("");
+			}
+			strToken = strSource.Tokenize(_T(","), nPos);
+		}
+	}
+	CString str = _T("");
+	vector<std::pair<CString, Creator::SingleAttrFunc>> attrs;
+	vector<CString> exclude = { m_strExeName + _T("WorkSpace.NET.dll") };
+	while (m_strCreatorAppCheckExt.Find(_T(",,")) != -1)
+		m_strCreatorAppCheckExt.Replace(_T(",,"), _T(","));
+	while (m_strCreatorAppCheckExt.Find(_T("..")) != -1)
+		m_strCreatorAppCheckExt.Replace(_T(".."), _T("."));
+	str = m_strCreatorAppCheckExt + _T(",");
+	if (str.Find(_T(".exe,")) == -1) {
+		m_strCreatorAppCheckExt += _T(",.exe");
+	}
+	if (str.Find(_T(".dll,")) == -1) {
+		m_strCreatorAppCheckExt += _T(",.dll");
+	}
+	if (str.Find(_T(".xml,")) == -1) {
+		m_strCreatorAppCheckExt += _T(",.xml");
+	}
+	if (str.Find(_T(".html,")) == -1) {
+		m_strCreatorAppCheckExt += _T(",.html");
+	}
+	if (str.Find(_T(".policy,")) == -1) {
+		m_strCreatorAppCheckExt += _T(",.policy");
+	}
+	m_strCreatorAppCheckExt.Replace(_T(",,"), _T(","));
+
+	str = m_strCreatorAgentCheckExt + _T(",");
+	if (str.Find(_T(".exe,")) == -1) {
+		m_strCreatorAgentCheckExt += _T(",.exe");
+	}
+	if (str.Find(_T(".dll,")) == -1) {
+		m_strCreatorAgentCheckExt += _T(",.dll");
+	}
+	if (str.Find(_T(".xml,")) == -1) {
+		m_strCreatorAgentCheckExt += _T(",.xml");
+	}
+	if (str.Find(_T(".html,")) == -1) {
+		m_strCreatorAgentCheckExt += _T(",.html");
+	}
+	if (str.Find(_T(".policy,")) == -1) {
+		m_strCreatorAgentCheckExt += _T(",.policy");
+	}
+	m_strCreatorAgentCheckExt.Replace(_T(",,"), _T(","));
+
+	while (m_strCreatorAgentCheckExt.Find(_T(",,")) != -1)
+		m_strCreatorAgentCheckExt.Replace(_T(",,"), _T(","));
+	while (m_strCreatorAgentCheckExt.Find(_T("..")) != -1)
+		m_strCreatorAgentCheckExt.Replace(_T(".."), _T("."));
+
+	//{ L".exe",L".dll",L".ocx",L".xml",L".policy",L".json",L".ini", L".config", L".html",L".js",L".ts" };
+	vector<CString> appcheckextensions = Creator::SplitCString(m_strCreatorAppCheckExt);
+
+	while (m_strCreatorEvSignCheckExt.Find(_T(",,")) != -1)
+		m_strCreatorEvSignCheckExt.Replace(_T(",,"), _T(","));
+	while (m_strCreatorEvSignCheckExt.Find(_T("..")) != -1)
+		m_strCreatorEvSignCheckExt.Replace(_T(".."), _T("."));
+
+	str = m_strCreatorEvSignCheckExt + _T(",");
+	if (str.Find(_T(".exe,")) == -1) {
+		m_strCreatorEvSignCheckExt += _T(",.exe");
+	}
+	if (str.Find(_T(".dll,")) == -1) {
+		m_strCreatorEvSignCheckExt += _T(",.dll");
+	}
+	if (str.Find(_T(".ocx,")) == -1) {
+		m_strCreatorEvSignCheckExt += _T(",.ocx");
+	}
+	if (str.Find(_T(".msi,")) == -1) {
+		m_strCreatorEvSignCheckExt += _T(",.msi");
+	}
+	m_strCreatorEvSignCheckExt.Replace(_T(",,"), _T(","));
+	vector<CString> checkExts = Creator::SplitCString(m_strCreatorEvSignCheckExt);//{ L".exe", L".dll", L".ocx",L".msi" };
+	vector<CString> whitelist = Creator::SplitCString(m_strCreatorAppWhiteListData);
+	attrs.emplace_back(L"sha256", GetFileSha256);
+
+	CString strPath = m_strAppPath;
+	strPath.MakeLower();
+	m_strCreatorAppData = m_strCreatorAppData = Creator::GenerateCreatorXml(
+		strPath,
+		L"",
+		attrs,
+		appcheckextensions,
+		true,
+		_T("creatordata"),
+		exclude,
+		false,
+		GetFileEVSigned,                // checkFunc
+		checkExts,                      // checkExtensions
+		L"evsigned",                    // checkAttrName
+		L"unevsigned",                  // uncheckedNodeName
+		false,                          // 未通过节点平铺输出
+		whitelist,                      // 白名单前缀
+		L"UnEvsigned_Component_Not_in_TrustedDirectory",
+		L"UnEvsigned_Component_in_TrustedDirectory",
+		&m_strCreatorAppUnSignedData
+	);
+
+	m_strCreatorAppKey = SHA256Hash(m_strCreatorAppData);
+
+	strPath = m_strAgentPath;
+	strPath.MakeLower();
+	vector<CString> agentcheckextensions = Creator::SplitCString(m_strCreatorAgentCheckExt);//{ L".exe",L".dll",L".ocx",L".xml",L".policy",L".json",L".ini", L".config", L".html",L".js",L".ts" };
+	vector<CString> whitelist2 = Creator::SplitCString(m_strCreatorAgentWhiteListData);
+	m_strCreatorAgentData = Creator::GenerateCreatorXml(
+		strPath,
+		L"",
+		attrs,
+		agentcheckextensions,
+		true,
+		_T("creatordata"),
+		exclude,
+		false,
+		GetFileEVSigned,                // checkFunc
+		checkExts,                      // checkExtensions
+		L"evsigned",                    // checkAttrName
+		L"unevsigned",                  // uncheckedNodeName
+		false,                          // 未通过节点平铺输出
+		whitelist2,                     // 白名单前缀
+		L"UnEvsigned_Component_Not_in_TrustedDirectory",
+		L"UnEvsigned_Component_in_TrustedDirectory",
+		&m_strCreatorAgentUnSignedData
+	);
+	m_strCreatorAgentKey = SHA256Hash(m_strCreatorAgentData);
+	if (m_strCreatorAppUnSignedData.IsEmpty() == false || m_strCreatorAgentUnSignedData.IsEmpty() == false)
+		m_bEnableAllDllInject = true;
+
+	SetEvent(g_hEvent);
+	if (m_strCreatorAppUnSignedData.IsEmpty() == false) {
+		// 配置 TASKDIALOGCONFIG
+		TASKDIALOGCONFIG tdc = { 0 };
+		tdc.cbSize = sizeof(tdc);
+		tdc.hwndParent = m_hMainWnd;
+		// 父窗口句柄（NULL 表示没有父窗口）
+		if (!::IsWindow(m_hMainWnd))
+			tdc.hwndParent = GetForegroundWindow();
+
+		// 重要：不要设置 TDF_SIZE_TO_CONTENT，否则 cxWidth 会被忽略
+		tdc.dwFlags = TDF_SIZE_TO_CONTENT | TDF_ALLOW_DIALOG_CANCELLATION;  // 允许用户按 ESC 关闭
+		// 也可以什么都不设：tdc.dwFlags = 0;
+
+		tdc.pszWindowTitle = L"Current Application Whill Be Run as Developer Model";
+		tdc.pszMainInstruction = L"Find UnTrusted Components in Main Application Directory:\r\n";
+		tdc.pszContent = m_strCreatorAppUnSignedData;
+
+		// **** 在这里设置你想要的宽度（单位：像素） ****
+		tdc.cxWidth = 300;
+
+		// 设置回调
+		//tdc.pfCallback = Creator::TaskDialogCallback; // 设置回调
+		//tdc.lpCallbackData = g_pSpaceTelescope->m_dwThreadID;
+
+		// 定义普通按钮
+		TASKDIALOG_BUTTON buttons[] = {
+			{ IDYES, L"Close(&Y)" },
+		};
+		tdc.pButtons = buttons;
+		tdc.cButtons = ARRAYSIZE(buttons);
+		tdc.nDefaultButton = IDYES;
+
+		// 可选：自定义图标（也可以使用系统图标，如 TD_INFORMATION_ICON）
+		tdc.pszMainIcon = TD_INFORMATION_ICON;
+
+		// 调用 TaskDialogIndirect
+		int nClickedButton = 0;
+		HRESULT hr = TaskDialogIndirect(&tdc, &nClickedButton, NULL, NULL);
+		//::MessageBox(m_hMainWnd, _T("Find UnSafe Components at Primary Application:\r\n\r\n") + m_strCreatorAppUnSignedData, L"Current Application Whill Be Run as Developer Model", MB_OK | MB_ICONWARNING | MB_SYSTEMMODAL);
+	}
+
+	if (m_strCreatorAgentUnSignedData.IsEmpty() == false) {
+		// 配置 TASKDIALOGCONFIG
+		TASKDIALOGCONFIG tdc = { 0 };
+		tdc.cbSize = sizeof(tdc);
+		tdc.hwndParent = m_hMainWnd;
+		// 父窗口句柄（NULL 表示没有父窗口）
+		if (!::IsWindow(m_hMainWnd))
+			tdc.hwndParent = GetForegroundWindow();
+
+		// 重要：不要设置 TDF_SIZE_TO_CONTENT，否则 cxWidth 会被忽略
+		tdc.dwFlags = TDF_SIZE_TO_CONTENT | TDF_ALLOW_DIALOG_CANCELLATION;  // 允许用户按 ESC 关闭
+		// 也可以什么都不设：tdc.dwFlags = 0;
+
+		tdc.pszWindowTitle = L"Current Application Whill Be Run as Developer Model";
+		tdc.pszMainInstruction = L"Find UnTrusted Components in Agent Application Directory:\r\n";
+		tdc.pszContent = m_strCreatorAgentUnSignedData;
+
+		// **** 在这里设置你想要的宽度（单位：像素） ****
+		tdc.cxWidth = 300;
+
+		// 设置回调
+		//tdc.pfCallback = Creator::TaskDialogCallback; // 设置回调
+		//tdc.lpCallbackData = g_pSpaceTelescope->m_dwThreadID;
+
+		// 定义普通按钮
+		TASKDIALOG_BUTTON buttons[] = {
+			{ IDYES, L"Close(&Y)" },
+		};
+		tdc.pButtons = buttons;
+		tdc.cButtons = ARRAYSIZE(buttons);
+		tdc.nDefaultButton = IDYES;
+
+		// 可选：自定义图标（也可以使用系统图标，如 TD_INFORMATION_ICON）
+		tdc.pszMainIcon = TD_INFORMATION_ICON;
+
+		// 调用 TaskDialogIndirect
+		int nClickedButton = 0;
+		HRESULT hr = TaskDialogIndirect(&tdc, &nClickedButton, NULL, NULL);
+		//::MessageBox(m_hMainWnd, _T("Find UnSafe Components at Agent Application:\r\n\r\n") + m_strCreatorAgentUnSignedData, L"Current Application Whill Be Run as Developer Model", MB_OK | MB_ICONWARNING | MB_SYSTEMMODAL);
+	}
+
+	if (g_hEvent2) {
+		WaitForSingleObject(g_hEvent2, INFINITE);
+		CloseHandle(g_hEvent2);
+		g_hEvent2 = nullptr;
+		if (m_strCreatorAppInitData.IsEmpty()) {
+			// 配置 TASKDIALOGCONFIG
+			TASKDIALOGCONFIG tdc = { 0 };
+			tdc.cbSize = sizeof(tdc);
+			tdc.hwndParent = m_hMainWnd;
+			// 父窗口句柄（NULL 表示没有父窗口）
+			if (!::IsWindow(m_hMainWnd))
+				tdc.hwndParent = GetForegroundWindow();
+
+			// 重要：不要设置 TDF_SIZE_TO_CONTENT，否则 cxWidth 会被忽略
+			tdc.dwFlags = TDF_SIZE_TO_CONTENT | TDF_ALLOW_DIALOG_CANCELLATION;  // 允许用户按 ESC 关闭
+			// 也可以什么都不设：tdc.dwFlags = 0;
+
+			tdc.pszWindowTitle = L"Current Application Whill Be Run as Developer Model";
+			tdc.pszMainInstruction = L"初始化函数:\r\n";
+			CString strAppNativeWorkSpacePath = m_strAgentPath + m_strExeName + _T("WorkSpace.NET.dll\r\n初始化错误");
+			tdc.pszContent = strAppNativeWorkSpacePath;
+
+			// **** 在这里设置你想要的宽度（单位：像素） ****
+			tdc.cxWidth = 300;
+
+			// 设置回调
+			//tdc.pfCallback = Creator::TaskDialogCallback; // 设置回调
+			//tdc.lpCallbackData = g_pSpaceTelescope->m_dwThreadID;
+
+			// 定义普通按钮
+			TASKDIALOG_BUTTON buttons[] = {
+				{ IDYES, L"Close(&Y)" },
+			};
+			tdc.pButtons = buttons;
+			tdc.cButtons = ARRAYSIZE(buttons);
+			tdc.nDefaultButton = IDYES;
+
+			// 可选：自定义图标（也可以使用系统图标，如 TD_INFORMATION_ICON）
+			tdc.pszMainIcon = TD_INFORMATION_ICON;
+
+			// 调用 TaskDialogIndirect
+			int nClickedButton = 0;
+			HRESULT hr = TaskDialogIndirect(&tdc, &nClickedButton, NULL, NULL);
+
+			//CString strAppNativeWorkSpacePath = m_strAgentPath + m_strExeName + _T("WorkSpace.NET.dll");
+			//::MessageBox(NULL, _T("函数:\r\n\r\n") + strAppNativeWorkSpacePath + _T("\r\n初始化错误"), L"Current Application Whill Be Run as Developer Model", MB_OK | MB_ICONWARNING | MB_SYSTEMMODAL);
+		}
+	}
+}
+
 void CSpaceTelescope::CosmosLoad()
 {
 	::GetModuleFileName(::GetModuleHandle(_T("universe.dll")), m_szBuffer, MAX_PATH);
 	CString _strWebRTPath = m_szBuffer;
 	int nPos = _strWebRTPath.ReverseFind('\\');
 	m_strWebRTPath = _strWebRTPath.Left(nPos + 1);
-	if (::PathIsDirectory(m_strWebRTPath))
-		::SetDllDirectory(m_strWebRTPath);
 
 	TCHAR szDriver[MAX_PATH] = { 0 };
 	TCHAR szDir[MAX_PATH] = { 0 };
@@ -2065,174 +4430,66 @@ void CSpaceTelescope::CosmosLoad()
 	_tsplitpath_s(m_szBuffer, szDriver, szDir, szFile2, szExt);
 	m_strAppPath = szDriver;
 	m_strAppPath += szDir;
-	m_strConfigFile = m_strAppPath;
-	m_strConfigFile.MakeLower();
-	CString strProxyName = m_strExeName;
-	strProxyName.MakeLower();
-	nPos = strProxyName.Find(_T("proxy"));
-	if (nPos != -1)
-	{
-		strProxyName.Replace(_T("proxy"), _T(""));
-		if (!::PathFileExists(m_strAppPath + strProxyName + _T(".exe")))
+
+	if (::PathFileExists(m_strAgentPath) == false) {
+		m_strAgentPath = m_strAppPath;
+		m_strConfigFile = m_strAgentPath + m_strExeName;
+		m_strConfigFile += _T(".exe.policy");
+	}
+	else {
+		if (m_bAgentModel == false)
 		{
-			strProxyName = m_strExeName;
+			m_bAgentModel = true;
+			m_strConfigFile = m_strAgentPath;
+			nPos = m_strConfigFile.ReverseFind('\\');
+			m_strAgentPath = m_strConfigFile.Left(nPos + 1);
+			m_strAgentExeFile = m_strConfigFile.Mid(nPos + 1);
+			m_strAgentExeFile.Replace(_T(".exe.policy"), _T(""));
 		}
 	}
+	::SetDllDirectory(m_strWebRTPath);
 
-	m_strConfigFile += strProxyName + _T(".exe.tangram");
-	//if (m_strConfigFile.Find(_T("loader.exe.tangram"))!=-1) {
-	//	CString m_strConfigFile2 = m_strConfigFile;
-	//	m_strConfigFile2.Replace(_T("loader.exe.tangram"), _T(".exe.tangram"));
-	//	if (::PathFileExists(m_strConfigFile2)) {
-	//		CopyFile(m_strConfigFile2, m_strConfigFile, false);
-	//	}
-	//}
-	CString strProductName = _T("");
-	CString strCompanyPathName = _T("");
-
+	m_strConfigFile.MakeLower();
 	if (::PathFileExists(m_strConfigFile))
 	{
 		CTangramXmlParse m_Parse;
 		if (m_Parse.LoadFile(m_strConfigFile)) {
-			//strProxyName = m_Parse.attr(_T("proxyname"), _T(""));
-			//if (strProxyName == _T("")) {
-			//	strProxyName = m_Parse.name();
-			//	CString strProxyPath = m_strAppPath + strProxyName + _T(".exe");
-			//	if (::PathFileExists(strProxyPath) == false) {
-			//		strProxyName = _T("");
-			//	}
-			//	strProxyName.MakeLower();
-			//}
-			strProductName = m_Parse.attr(_T("productname"), _T(""));
-			if (strProductName == _T(""))
-				strProductName = strProxyName;
-			strCompanyPathName = m_Parse.attr(_T("companypathname"), _T(""));
-			if (strCompanyPathName == _T(""))
-				strCompanyPathName = strProxyName + _T(" team");
-		}
-	}
-	strProductName.MakeLower();
-	strCompanyPathName.MakeLower();
-	BuildConfigDataFile(strProxyName, strProductName, strCompanyPathName);
-	//	bool bExistsOSSupport = false;
-	//	HANDLE hActCtx;
-	//	GetCurrentActCtx(&hActCtx);
-	//	//ReleaseActCtx(&ActCtx);
-	////HANDLE   ActCtxHandle = INVALID_HANDLE_VALUE;
-	//	SIZE_T   BytesWritten = 0;
-	//	PACTIVATION_CONTEXT_COMPATIBILITY_INFORMATION CtxCompatInfo = NULL;
-	//
-	//	// Query the compatibility information size
-	//	bool bReturn = QueryActCtxW(0,
-	//		hActCtx,
-	//		NULL,
-	//		CompatibilityInformationInActivationContext,
-	//		NULL,
-	//		0,
-	//		&BytesWritten);
-	//
-	//	if (bReturn == FALSE && GetLastError() != ERROR_INSUFFICIENT_BUFFER)
-	//	{
-	//		goto EXIT;
-	//	}
-	//
-	//	CtxCompatInfo =
-	//		(PACTIVATION_CONTEXT_COMPATIBILITY_INFORMATION)HeapAlloc(GetProcessHeap(),
-	//			HEAP_ZERO_MEMORY, BytesWritten);
-	//
-	//	if (CtxCompatInfo == NULL)
-	//	{
-	//		// Out of memory
-	//		goto EXIT;
-	//	}
-	//
-	//	// Query the compatibility information
-	//	bReturn = QueryActCtxW(QUERY_ACTCTX_FLAG_ACTCTX_IS_HMODULE,
-	//		(HANDLE)::GetModuleHandle(NULL),
-	//		NULL,
-	//		CompatibilityInformationInActivationContext,
-	//		CtxCompatInfo,
-	//		BytesWritten,
-	//		&BytesWritten);
-	//
-	//	if (bReturn == FALSE)
-	//	{
-	//		// Unexpected error: use GetLastError() to check
-	//		goto EXIT;
-	//	}
-	//
-	//	for (DWORD ElementIndex = 0; ElementIndex < CtxCompatInfo->ElementCount; ElementIndex++)
-	//	{
-	//		PCOMPATIBILITY_CONTEXT_ELEMENT ContextElement = &(CtxCompatInfo->Elements[ElementIndex]);
-	//		if (ContextElement->Type == ACTCTX_COMPATIBILITY_ELEMENT_TYPE_OS)
-	//		{
-	//			bExistsOSSupport = true;
-	//			break;
-	//			//if (memcmp(ContextElement->Id, L"{35138b9a-5d96-4fbd-8e2d-a2440225f93a}", sizeof(GUID)) == 0)
-	//			//{
-	//			//	printf_s("Windows 7 is supported");
-	//			//}
-	//		}
-	//	}
-	//
-	//EXIT:
-	//	if (hActCtx != INVALID_HANDLE_VALUE)
-	//	{
-	//		ReleaseActCtx(hActCtx);
-	//	}
-	//	if (CtxCompatInfo != NULL)
-	//	{
-	//		HeapFree(GetProcessHeap(), HEAP_NO_SERIALIZE, CtxCompatInfo);
-	//		CtxCompatInfo = NULL;
-	//	}
-}
-
-#ifndef _WIN64
-void CSpaceTelescope::ConnectWebAgent()
-{
-	TCHAR m_szBuffer[MAX_PATH];
-	HRESULT hr = SHGetFolderPath(NULL, CSIDL_COMMON_APPDATA, NULL, 0, m_szBuffer);
-	CString strCASServer = CString(m_szBuffer) + _T("\\WebRuntimeApp\\WebRuntime");
-	CString strWebRuntimeForCfg = strCASServer + _T("\\CASWebAgent.exe.tangram");
-	CString strUrl = _T("https://vscss-prod.herokuapp.com/index");
-	CTangramXmlParse parse;
-	if (parse.LoadFile(strWebRuntimeForCfg))
-	{
-		CString _strUrl = parse.attr(_T("url"), _T(""));
-		if (_strUrl != _T(""))
-			strUrl = _strUrl;
-	}
-	bool bConnect = false;
-	DWORD Description = 0;
-	if (InternetGetConnectedState(&Description, 0))
-		bConnect = CheckUrl(strUrl);
-	if (bConnect)
-	{
-		::PostAppMessage(m_dwThreadID, WM_COSMOSMSG, 0, 20200705);
-	}
-	else
-	{
-		auto t = create_task([this, strUrl]()
-			{
-				while (1)
-				{
-					Sleep(2000);
-					CString _strUrl = strUrl;
-					bool bConnect = false;
-					DWORD Description = 0;
-					if (InternetGetConnectedState(&Description, 0))
-						bConnect = CheckUrl(_strUrl);
-					if (bConnect)
-					{
-						::PostAppMessage(m_dwThreadID, WM_COSMOSMSG, 0, 20200705);
-						break;
+			m_strProductName = m_Parse.attr(_T("productname"), m_strExeName).MakeLower();
+			m_strCompanyName = m_Parse.attr(_T("companyname"), m_strExeName + _T(" team")).MakeLower();
+			if (m_bAgentModel) {
+				m_strCreatorMonitorExt = m_Parse.attr(_T("monitorexcludeext"), _T(".tmp,.temp")).MakeLower();
+				m_strCreatorAppWhiteListData = m_Parse.attr(_T("apptrustedfolderlist"), _T("component,webpage,template,image")).MakeLower();
+				m_strCreatorAgentWhiteListData = m_Parse.attr(_T("agenttrustedfolderlist"), _T("component,webpage,template,image")).MakeLower();
+				m_strCreatorAppCheckExt = m_Parse.attr(_T("appcheckext"), _T(".exe,.dll,.ocx,.msi,.xml,.policy,.json,.js")).MakeLower();
+				m_strCreatorAgentCheckExt = m_Parse.attr(_T("agentcheckext"), _T(".exe,.dll,.ocx,.msi")).MakeLower();
+				m_strCreatorEvSignCheckExt = m_Parse.attr(_T("evsignext"), _T(".exe,.dll,.ocx,.msi")).MakeLower();
+				if (theApp.m_bAsynLodeMode == false) {
+					//HWND hWnd = Creator::FindMainWindowOfCurrentProcess();
+					//if (::IsWindow(hWnd))
+					//{
+					//	::MessageBox(hWnd, L"", L"", MB_OK);
+					//}
+					CString strInject = m_Parse.attr(_T("inject"), _T(""));
+					strInject.Trim();
+					if (strInject.CompareNoCase(_T("false"))) {
+						CString strVal = _T("false");
+						m_Parse.put_attr(_T("inject"), strVal);
+						m_Parse.SaveFile(m_strConfigFile);
 					}
 				}
-				return 1;
-			});
+			}
+		}
 	}
+	if (m_bAgentModel == false)
+		return;
+
+	if (theApp.m_bAsynLodeMode) {
+		::PostThreadMessage(theApp.m_dwMainThreadID, WM_COSMOSMSG, 0, 20250531);
+	}
+
+	BuildConfigDataFile(m_strExeName, m_strProductName, m_strCompanyName);
+	SetEvent(theApp.m_hVerifyandMonitorInitEvent);
 }
-#endif
 
 void CSpaceTelescope::WebRTInit()
 {
@@ -2242,13 +4499,14 @@ void CSpaceTelescope::WebRTInit()
 	{
 		if (::PathFileExists(m_strConfigDataFile) == TRUE)
 			::DeleteFile(m_strConfigDataFile);
+		CString strExePath = m_strAppPath + m_strExeName + _T(".exe");
 		CString strXml = _T("");
-		strXml.Format(_T("<%s developermodel='true' companypathname='%s %s'  productname='%s' />"), m_strExeName, m_strExeName, _T("Team"), m_strExeName);
+		strXml.Format(_T("<%s companypathname='%s %s'  productname='%s' exepath='%s' />"), m_strExeName, m_strExeName, _T("Team"), m_strExeName, strExePath);
 		_m_Parse.LoadXml(strXml);
 		_m_Parse.SaveFile(m_strConfigFile);
 		bLoad = true;
 		m_bEclipse = false;
-		CString strplugins = m_strAppPath + _T("plugins\\");
+		CString strplugins = m_strAgentPath + _T("plugins\\");
 		if (::PathIsDirectory(strplugins)) {
 			CString strPath = strplugins + _T("*.jar");
 			_wfinddata_t fd;
@@ -2329,6 +4587,11 @@ void CSpaceTelescope::WebRTInit()
 
 void CSpaceTelescope::ExitInstance()
 {
+	if (g_hEvent)
+		CloseHandle(g_hEvent);
+	if (g_hEvent2)
+		CloseHandle(g_hEvent2);
+	monitor.Stop();
 	if (m_mapEvent.size())
 	{
 		auto it = m_mapEvent.begin();
@@ -2565,6 +4828,152 @@ CSession* CSpaceTelescope::GetCloudSession(IXobj* _pXobj)
 	return nullptr;
 }
 
+// 探测 folder 下是否存在目标文件 fileName（精确名称，不区分大小写）
+// 若存在返回完整路径，否则返回空字符串
+CString TryFindDirect(const CString& folder, const CString& fileName) {
+	CString fullPath = folder + L"\\" + fileName;
+	fullPath.Replace(_T("\\\\"), _T("\\"));
+	WIN32_FIND_DATAW fd;
+	HANDLE h = FindFirstFileExW(
+		fullPath,
+		FindExInfoBasic,            // 跳过短文件名，更快
+		&fd,
+		FindExSearchNameMatch,      // 按名称匹配
+		nullptr,
+		0);                         // 不设大小写敏感 → 忽略大小写
+	if (h != INVALID_HANDLE_VALUE) {
+		FindClose(h);
+		return fullPath;
+	}
+	return L"";
+}
+
+// 在 dirpath 及其所有子目录中查找第一个名为 fileName 的文件
+// 返回找到的完整路径；未找到返回空字符串
+CString CSpaceTelescope::GetFileByName(const CString& dirpath, const CString& fileName) {
+	// 1. 先检查根目录
+	CString result = TryFindDirect(dirpath, fileName);
+	if (!result.IsEmpty()) return result;
+
+	// 2. 深度优先遍历子目录
+	std::stack<CString> dirs;
+	dirs.push(dirpath);
+
+	while (!dirs.empty()) {
+		CString current = dirs.top();
+		dirs.pop();
+
+		// 枚举 current 下的所有子目录（不返回文件，进一步加速）
+		CString search = current + L"\\*";
+		search.Replace(_T("\\\\"), _T("\\"));
+		WIN32_FIND_DATAW fd;
+		HANDLE h = FindFirstFileExW(
+			search,
+			FindExInfoBasic,
+			&fd,
+			FindExSearchLimitToDirectories,   // 只返回目录
+			nullptr,
+			FIND_FIRST_EX_LARGE_FETCH);       // 减少内核切换（Win10 1607+）
+		if (h == INVALID_HANDLE_VALUE) continue;
+
+		do {
+			if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+				// 跳过 . 和 ..
+				if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0)
+					continue;
+
+				CString subDir = current + L"\\" + fd.cFileName;
+				subDir.Replace(_T("\\\\"), _T("\\"));
+				// 试探该子目录下是否存在目标文件
+				//CString::IsEmpty()
+				result = TryFindDirect(subDir, fileName);
+				if (!result.IsEmpty()) {
+					FindClose(h);
+					return result;   // 找到，立即返回
+				}
+				// 未找到，将子目录入栈，稍后深入
+				dirs.push(subDir);
+			}
+		} while (FindNextFileW(h, &fd));
+		FindClose(h);
+	}
+	return L"";  // 整棵树未找到
+}
+
+// 函数：在 rootPath 目录及其所有子目录中查找名为 strFileName 的第一个文件
+// 注意：此实现仅适用于项目字符集设置为“使用 Unicode 字符集”的情况
+//       如果需要在 ANSI/MBCS 下使用，请将 CString 显式改为 CStringW 并调整 API 调用
+//CString CSpaceTelescope::GetFileByName(const CString& rootPath, const CString& strFileName)
+//{
+//	return FindFirstFileDeep(rootPath, strFileName);
+//	//// 使用 vector 模拟栈，实现深度优先遍历
+//	//std::vector<CString> directories;
+//	////if (rootPath.back() != L'\\' && rootPath.back() != L'/') {
+//	////	rootPath += L"\\";
+//	////}
+//	//directories.push_back(rootPath);
+//
+//	//while (!directories.empty())
+//	//{
+//	//	CString currentDir = directories.back();
+//	//	directories.pop_back();
+//	//	currentDir.Replace(_T("\\\\"), _T("\\"));
+//
+//	//	// 构建搜索通配符
+//	//	CString searchPattern = currentDir + L"\\*";
+//	//	searchPattern.Replace(_T("\\\\"), _T("\\"));
+//	//	WIN32_FIND_DATAW findData;
+//	//	HANDLE hFind = FindFirstFileW(searchPattern, &findData);
+//
+//	//	if (hFind == INVALID_HANDLE_VALUE)
+//	//	{
+//	//		// 可能无权限访问或目录为空，跳过该目录
+//	//		continue;
+//	//	}
+//
+//	//	do
+//	//	{
+//	//		// 跳过当前目录"."和上级目录".."
+//	//		if (wcscmp(findData.cFileName, L".") == 0 ||
+//	//			wcscmp(findData.cFileName, L"..") == 0)
+//	//		{
+//	//			continue;
+//	//		}
+//
+//	//		// 构造完整路径
+//	//		CString fullPath = currentDir + L"\\" + findData.cFileName;
+//	//		fullPath.Replace(_T("\\\\"), _T("\\"));
+//
+//	//		// 如果是目录，则加入待遍历列表
+//	//		if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+//	//		{
+//	//			// 跳过重解析点（符号链接、交接点等）以防止无限循环
+//	//			// 代价：将忽略位于符号链接目录下的文件
+//	//			// 如需跟踪链接，请实现基于真实路径（GetFinalPathNameByHandle）的循环检测
+//	//			if (findData.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+//	//			{
+//	//				continue;
+//	//			}
+//	//			directories.push_back(fullPath);
+//	//		}
+//	//		// 如果是文件，且文件名匹配（不区分大小写）
+//	//		else if (_wcsicmp(findData.cFileName, strFileName) == 0)
+//	//		{
+//	//			// 找到目标文件，先关闭搜索句柄再返回，避免资源泄漏
+//	//			FindClose(hFind);
+//	//			return fullPath;
+//	//		}
+//
+//	//	} while (FindNextFileW(hFind, &findData) != 0);
+//
+//	//	// 目录遍历结束，关闭句柄
+//	//	FindClose(hFind);
+//	//}
+//
+//	//// 未找到文件，返回空字符串
+//	//return CString();
+//}
+
 void CSpaceTelescope::SetMainWnd(HWND hMain)
 {
 	m_hMainWnd = hMain;
@@ -2573,7 +4982,7 @@ void CSpaceTelescope::SetMainWnd(HWND hMain)
 	LRESULT l = ::SendMessage(hMain, WM_HUBBLE_DATA, 0, 20190214);
 	if (l == 0)
 	{
-		GetDefaultInitWebPage();
+		//GetDefaultInitWebPage();
 		pWnd = new CCloudWinForm();
 		m_hFormNodeWnd = (HWND)hMain;
 		pWnd->SubclassWindow(hMain);
@@ -2719,147 +5128,15 @@ void CSpaceTelescope::RemoveOldWebRTFiles(CString strBase, CString strVer) {
 		});
 }
 
-void CSpaceTelescope::GetDefaultInitWebPage() {
-	bool bNeedCreateInitWebPage = false;
-	if (m_pUniverseAppProxy)
-	{
-		CString strWebPage = m_strAppPath + m_strExeName + _T(".app.html");
-		if (::PathFileExists(strWebPage)) {
-			DWORD dwDesiredAccess = GENERIC_READ;
-			DWORD dwShareMode = FILE_SHARE_READ;
-			DWORD dwFlagsAndAttributes = FILE_ATTRIBUTE_NORMAL;
-			HANDLE hFile = ::CreateFile(strWebPage, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_RANDOM_ACCESS, NULL);
-			DWORD dwFileSizeHigh = 0;
-			DWORD qwFileSize = GetFileSize(hFile, &dwFileSizeHigh);
-			qwFileSize |= (((__int64)dwFileSizeHigh) << 32);
-			DWORD dwFileSize = qwFileSize;
-			if ((dwFileSize == 0) || (dwFileSize == INVALID_FILE_SIZE))
-			{
-				bNeedCreateInitWebPage = true;
-				TRACE(_T("ERROR: GetFileSize failed - %s\n"), strWebPage);
-				CloseHandle(hFile);
-			}
-			else if (qwFileSize <= 512 && ::PathIsDirectory(m_strWebRTPath))
-			{
-				bNeedCreateInitWebPage = true;
-				CloseHandle(hFile);
-			}
-		}
-		else
-		{
-			//bNeedCreateInitWebPage = true;
-		}
-		if (bNeedCreateInitWebPage) {
-
-			CString strSRC = m_strWebRTPath + _T("template\\");
-			if (m_nNativeAppType >= 20) {
-				LoadCLR();
-				if (m_pCLRProxy)
-				{
-					HWND hWnd = m_hMainWnd;
-					if (::IsWindow(hWnd) == false)
-						hWnd = (HWND)1;
-					int nFormType = m_pCLRProxy->IsWinForm(hWnd);
-					switch (nFormType) {
-					case 2:
-						strSRC += _T("TangramMDIForm.app.html");
-						break;
-					case 1:
-						strSRC += _T("TangramForm.app.html");
-						break;
-					}
-				}
-			}
-			else
-			{
-				HANDLE hHandle = ::GetProp(m_hMainWnd, _T("WebRTFrameWndInfo"));
-				if (hHandle)
-				{
-					WebRTFrameWndInfo* pWebRTFrameWndInfo = (WebRTFrameWndInfo*)hHandle;
-					switch (pWebRTFrameWndInfo->m_nFrameType) {
-					case 1:
-					{
-						CCloudMDTFrame* pMainFrame = g_pSpaceTelescope->AttachCloudMDTFrame(m_hMainWnd, false);
-						if (bNeedCreateInitWebPage) {
-							if (m_pUniverseAppProxy->m_pvoid) {
-								strSRC += _T("NativeMFCMDTEx.app.html");
-							}
-							else
-							{
-								strSRC += _T("NativeMFCMDT.app.html");
-							}
-						}
-					}
-					break;
-					case 2:
-						if (bNeedCreateInitWebPage) {
-							if (m_pUniverseAppProxy->m_pvoid) {
-								strSRC += _T("NativeMFCMDIEx.app.html");
-							}
-							else
-							{
-								strSRC += _T("NativeMFCMDI.app.html");
-							}
-						}
-						break;
-					case 4:
-						if (bNeedCreateInitWebPage) {
-							if (m_pUniverseAppProxy->m_pvoid) {
-								strSRC += _T("NativeMFCSDIEx.app.html");
-							}
-							else
-							{
-								strSRC += _T("NativeMFCSDI.app.html");
-							}
-						}
-						break;
-					}
-
-				}
-				else
-				{
-					if (bNeedCreateInitWebPage) {
-						strSRC += _T("NativeMFCDlg.app.html");
-					}
-				}
-			}
-			if (::PathFileExists(strSRC)) {
-				::CopyFile(strSRC, strWebPage, false);
-				CTangramXmlParse m_Parse;
-				if (m_Parse.LoadFile(m_strWebRTPath + _T("InitData.xml"))) {
-					CString strName = _T("");
-					for (int i = 0; i < m_Parse.GetCount(); i++)
-					{
-						CTangramXmlParse* pChild = m_Parse.GetChild(i);
-						strName = pChild->text();
-						if (pChild->attrBool(_T("folder")))
-						{
-							CString strFolder = m_strAppPath + strName + _T("\\");
-							CreateDirectory(strFolder, NULL);
-							CopyFolder(m_strWebRTPath + strName + _T("\\"), strFolder);
-						}
-						else
-						{
-							::CopyFile(m_strWebRTPath + strName, m_strAppPath + strName, false);
-						}
-					}
-				}
-			}
-		}
-	}
-	if (bNeedCreateInitWebPage)
-		Sleep(1000);
-}
-
 CString CSpaceTelescope::GetTextResource(CString strFile, int Index, CString strType) {
 	ResourceReader reader(strFile);
 	std::wstring text = reader.GetWideTextResource(Index, strType);
 	return text.c_str();
 }
 
-bool CSpaceTelescope::ProcessMsg(MSG msg) 
-{ 
-	return false; 
+bool CSpaceTelescope::ProcessMsg(MSG msg)
+{
+	return false;
 }
 
 bool g_bInit = false;
@@ -2869,36 +5146,85 @@ void CSpaceTelescope::BrowserAppStart()
 	if (g_bInit == true)
 		return;
 	g_bInit = true;
+	if (g_hEvent) {
+		WaitForSingleObject(g_hEvent, INFINITE);
+		CloseHandle(g_hEvent);
+		g_hEvent = nullptr;
+	}
 
-	GetEnableAllDllInjectInfo();
-
-	auto it = m_mapValInfo.find(_T("startupurl"));
-	if (it != m_mapValInfo.end())
-		m_strStartupURL = OLE2T(it->second.bstrVal);
-	else
-	{
-		CTangramXmlParse parse;
-		CString strUrl = _T("");
-		if (parse.LoadFile(m_strConfigFile))
-		{
-			CString _strUrl = parse.attr(_T("url"), _T(""));
-			if (_strUrl != _T(""))
-			{
-				strUrl = _strUrl;
-				m_strStartupURL = strUrl;
+	CString strAppNativeWorkSpacePath = m_strAgentPath + m_strExeName + _T("WorkSpace.NET.dll");
+	if (::PathFileExists(strAppNativeWorkSpacePath)) {
+		bool IsValidEVSign = false;
+		bool isWorkSpacePathNoEVSigned = EvCheck::CheckDllNoSigned(strAppNativeWorkSpacePath);
+		if (isWorkSpacePathNoEVSigned == false) {
+			IsValidEVSign = EvCheck::IsEVSigned(strAppNativeWorkSpacePath);
+		}
+		if ((IsValidEVSign || isWorkSpacePathNoEVSigned)) {
+			LoadCLR();
+			DWORD dwRetCode = 0;
+			ICLRRuntimeHost* pHost = m_pClrHost;
+			if (m_pClrCoreHost)
+				pHost = m_pClrCoreHost;
+			if (pHost) {
+				HRESULT hrStart = pHost->ExecuteInDefaultAppDomain(
+					strAppNativeWorkSpacePath,
+					_T("Creator.WorkSpace"),
+					_T("Init"),
+					m_strCreatorAppKey + _T("|") + m_strCreatorAgentKey,
+					&dwRetCode);
 			}
 		}
 	}
-	if (m_strStartupURL == _T("")) {
-		CString strURL = m_strAppPath + m_strExeName + _T(".app.html");
-		if (::PathFileExists(strURL)) {
+
+	SetEvent(g_hEvent2);
+
+	if (m_strCreatorAppInitData != _T("OK")) {
+		m_bEnableAllDllInject = true;
+	}
+
+	CString strName = m_strExeName;
+	//CString strURL = m_strAgentPath + strName + _T(".app.html");
+	CString strURL = GetFileByName(m_strAgentPath, strName + _T(".app.html"));
+	if (::PathFileExists(strURL)) {
+		m_strStartupURL = strURL;
+		m_nAppType = APP_BROWSERAPP;
+	}
+	else if (m_bAgentModel) {
+		HANDLE hHandle = ::GetProp(m_hMainWnd, _T("WebRTFrameWndInfo"));
+		if (hHandle == NULL) {
+			CString strSRC = m_strWebRTPath + _T("template\\");
+			strSRC += _T("NativeMFCDlg.app.html");
+			if (::PathFileExists(strSRC)) {
+				::CopyFile(strSRC, strURL, false);
+				CTangramXmlParse m_Parse;
+				if (m_Parse.LoadFile(m_strWebRTPath + _T("InitData.xml"))) {
+					CString strName = _T("");
+					for (int i = 0; i < m_Parse.GetCount(); i++)
+					{
+						CTangramXmlParse* pChild = m_Parse.GetChild(i);
+						strName = pChild->text();
+						if (pChild->attrBool(_T("folder")))
+						{
+							CString strFolder = m_strAgentPath + strName + _T("\\");
+							CreateDirectory(strFolder, NULL);
+							CopyFolder(m_strWebRTPath + strName + _T("\\"), strFolder);
+						}
+						else
+						{
+							CString strTargetName = strName;
+							if (strName.CollateNoCase(_T("WorkSpace.NET.dll")) == 0) {
+								strTargetName = m_strExeName + strName;
+							}
+							::CopyFile(m_strWebRTPath + strName, m_strAgentPath + strTargetName, false);
+						}
+					}
+				}
+			}
 			m_strStartupURL = strURL;
-			//::MessageBox(NULL, L"", strURL, MB_OK);
 			m_nAppType = APP_BROWSERAPP;
 		}
 	}
 
-	GetDefaultInitWebPage();
 	if (m_strStartupURL != _T(""))
 	{
 		if ((m_nAppType != APP_BROWSER) && m_pBrowserFactory && ::IsWindow(m_hCosmosWnd)) {
@@ -3187,13 +5513,12 @@ int CSpaceTelescope::LoadCLR()
 {
 	if (m_pClrCoreHost != nullptr || m_pClrHost != nullptr)
 		return 0;
-
-	CString strCosmosPath = m_strAppPath + _T("cosmos.dll");
-	if (::PathFileExists(strCosmosPath) == false)
-	{
-		CString strPath2 = m_strWebRTPath + _T("cosmos.dll");
-		if (::PathFileExists(strPath2)) {
-			CopyFile(strPath2, strCosmosPath, true);
+	CString strCosmosPath = m_strAppPath + _T("Cosmos.dll");
+	if (::PathFileExists(strCosmosPath) == false) {
+		TCHAR m_szBuffer[MAX_PATH];
+		if (SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0, m_szBuffer) == S_OK) {
+			strCosmosPath = CString(m_szBuffer);
+			strCosmosPath += _T("\\Tangram\\Creator\\Cosmos.dll");
 		}
 	}
 
@@ -3256,17 +5581,16 @@ int CSpaceTelescope::LoadCLR()
 				// Get the hosting interface
 				HRESULT hr = pfnGetCLRRuntimeHost(IID_ICLRRuntimeHost4, (IUnknown**)&m_pClrCoreHost);
 				DWORD exitCode = -1;
-				CString CosmosPath = strCosmosPath;
 
 				CWebRTImpl* pWebRTProxyBase = static_cast<CWebRTImpl*>(this);
 				CString strInfo = _T("");
 				strInfo.Format(_T("%I64d"), (__int64)pWebRTProxyBase);
 				DWORD dwRetCode = 0;
 				hr = m_pClrCoreHost->ExecuteInDefaultAppDomain(
-					CosmosPath,
+					strCosmosPath,
 					_T("Universe.WebRT"),
 					_T("WebRTInit"),
-					CComBSTR(strInfo),
+					strInfo,
 					&dwRetCode);
 				return hr;
 			}
@@ -3301,71 +5625,12 @@ int CSpaceTelescope::LoadCLR()
 						else
 							m_bEnableProcessFormTabKey = true;
 
-						CString strPath = strCosmosPath;
-						if (m_bOfficeApp)
-						{
-							TCHAR m_szBuffer[MAX_PATH];
-							if (SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0, m_szBuffer) == S_OK) {
-								strPath = CString(m_szBuffer);
-								strPath += _T("\\tangram\\Cosmos.dll");
-							}
-						}
-						HANDLE hFind; // file handle
-						WIN32_FIND_DATA FindFileData;
-						if (::PathFileExists(strPath) == false)
-						{
-							strPath = _T("");
-							hFind = FindFirstFile(m_strAppPath + _T("Cosmos.dll"), &FindFileData); // find the first file
-							if (hFind != INVALID_HANDLE_VALUE)
-							{
-								bool bSearch = true;
-								while (bSearch) // until we finds an entry
-								{
-									if (FindNextFile(hFind, &FindFileData))
-									{
-										// Don't care about . and ..
-										//if(IsDots(FindFileData.cFileName))
-										if ((_tcscmp(FindFileData.cFileName, _T(".")) == 0) ||
-											(_tcscmp(FindFileData.cFileName, _T("..")) == 0))
-											continue;
-
-										// We have found a directory
-										if ((FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-										{
-											strPath = m_strAppPath + FindFileData.cFileName + _T("\\");
-											strPath += _T("Cosmos.dll");
-											if (::PathFileExists(strPath))
-											{
-												break;
-											}
-										}
-
-									}//FindNextFile
-								}//while
-							}
-						}
-
-						if (strPath == _T(""))
-						{
-							strPath = m_strAppPath + _T("PublicAssemblies\\Cosmos.dll"); // find the first file
-							if (!::PathFileExists(strPath))
-							{
-								int nVer = 0;
-#ifdef _WIN64
-								nVer = 64;
-#else
-								nVer = 32;
-#endif
-								strPath.Format(_T("%s\\Microsoft.NET\\assembly\\GAC_%d\\Cosmos\\v4.0_1.0.1992.1963__1bcc94f26a4807a7\\Cosmos.dll"), m_szBuffer, nVer);
-							}
-						}
-
 						CWebRTImpl* pWebRTProxyBase = static_cast<CWebRTImpl*>(this);
 						CString strInfo = _T("");
 						strInfo.Format(_T("%I64d"), (__int64)pWebRTProxyBase);
 						DWORD dwRetCode = 0;
 						hrStart = m_pClrHost->ExecuteInDefaultAppDomain(
-							strPath,
+							strCosmosPath,
 							_T("Universe.WebRT"),
 							_T("WebRTInit"),
 							CComBSTR(strInfo),
@@ -3422,6 +5687,7 @@ int CSpaceTelescope::LoadCLR()
 		if (m_pCLRProxy == nullptr) {
 			CorePath = m_strProgramFilePath;
 			CorePath += _T("\\dotnet\\shared\\Microsoft.NETCore.App\\");
+			CorePath.Replace(_T("\\\\"), _T("\\"));
 			HANDLE hFind; // file handle
 			WIN32_FIND_DATA FindFileData;
 			CString _strVer = m_strMiniClrCoreVer;// _T("6.0.18");
@@ -3474,6 +5740,7 @@ int CSpaceTelescope::LoadCLR()
 				CorePath += m_strClrCoreVer;
 				CString strCoreRoot = CorePath;
 				CorePath += _T("\\CoreCLR.dll");
+				CorePath.Replace(_T("\\\\"), _T("\\"));
 				hMscoreeLib = ::LoadLibraryExW(CorePath, NULL, 0);
 				FnGetCLRRuntimeHost pfnGetCLRRuntimeHost =
 					(FnGetCLRRuntimeHost)::GetProcAddress(hMscoreeLib, "GetCLRRuntimeHost");
@@ -3580,6 +5847,7 @@ int CSpaceTelescope::LoadCLR()
 				if (!::PathIsDirectory(strCoreRoot)) {
 					CorePath = m_strProgramFilePath;
 					CorePath += _T("\\dotnet\\shared\\Microsoft.WindowsDesktop.App\\");
+					CorePath.Replace(_T("\\\\"), _T("\\"));
 					HANDLE hFind; // file handle
 					WIN32_FIND_DATA FindFileData;
 					CString _strVer = m_strMiniClrCoreVer;
@@ -3624,6 +5892,7 @@ int CSpaceTelescope::LoadCLR()
 								break;
 						}//while
 						strCoreRoot = m_strProgramFilePath + _T("\\dotnet\\shared\\Microsoft.WindowsDesktop.App\\") + _strVer;
+						strCoreRoot.Replace(_T("\\\\"), _T("\\"));
 						FindClose(hFind);
 					}
 				}
@@ -3701,6 +5970,12 @@ int CSpaceTelescope::LoadCLR()
 				wcscat_s(appNiPaths, MAX_PATH * 50, L";");
 				wcscat_s(appNiPaths, MAX_PATH * 50, m_strAppPath);
 				wcscat_s(appNiPaths, MAX_PATH * 50, L"NI");
+
+				wchar_t appAgentPaths[MAX_PATH * 50];
+				wcscpy_s(appAgentPaths, m_strAgentPath);
+				wcscat_s(appAgentPaths, MAX_PATH * 50, L";");
+				wcscat_s(appAgentPaths, MAX_PATH * 50, m_strAgentPath);
+
 				// NATIVE_DLL_SEARCH_DIRECTORIES
 				// Native dll search directories are paths that the runtime will probe for native DLLs called via PInvoke
 				wchar_t nativeDllSearchDirectories[MAX_PATH * 50];
@@ -3716,6 +5991,7 @@ int CSpaceTelescope::LoadCLR()
 				const wchar_t* propertyKeys[] = {
 					L"TRUSTED_PLATFORM_ASSEMBLIES",
 					L"APP_PATHS",
+					L"AGENT_PATHS",
 					L"APP_NI_PATHS",
 					L"NATIVE_DLL_SEARCH_DIRECTORIES",
 					L"PLATFORM_RESOURCE_ROOTS"
@@ -3724,6 +6000,7 @@ int CSpaceTelescope::LoadCLR()
 				const wchar_t* propertyValues[] = {
 					trustedPlatformAssemblies,
 					appPaths,
+					appAgentPaths,
 					appNiPaths,
 					nativeDllSearchDirectories,
 					platformResourceRoots
@@ -3764,14 +6041,12 @@ int CSpaceTelescope::LoadCLR()
 			}
 
 			DWORD exitCode = -1;
-			CString CosmosPath = m_strAppPath + _T("Cosmos.dll");
-
 			CWebRTImpl* pWebRTProxyBase = static_cast<CWebRTImpl*>(this);
 			CString strInfo = _T("");
 			strInfo.Format(_T("%I64d"), (__int64)pWebRTProxyBase);
 			DWORD dwRetCode = 0;
 			hr = m_pClrCoreHost->ExecuteInDefaultAppDomain(
-				CosmosPath,
+				strCosmosPath,
 				_T("Universe.WebRT"),
 				_T("WebRTInit"),
 				CComBSTR(strInfo),
@@ -3947,7 +6222,6 @@ CCloudMDTFrame* CSpaceTelescope::AttachCloudMDTFrame(HWND hWnd, bool bNewDoc) {
 
 CString CSpaceTelescope::BuildConfigDataFile(CString strExeName, CString strProductName, CString strCompanyPathName)
 {
-	//::MessageBox(NULL, L"begin", strExeName, MB_OK);
 	HRESULT hr = SHGetFolderPath(NULL, CSIDL_COMMON_APPDATA, NULL, 0, m_szBuffer);
 	CString _strProductName = strProductName;
 	if (strProductName == _T("")) {
@@ -3972,6 +6246,11 @@ CString CSpaceTelescope::BuildConfigDataFile(CString strExeName, CString strProd
 	_strAppDataPath += _T("\\");
 	_strAppDataPath.Replace(_T("\\\\"), _T("\\"));
 	_strAppDataPath += _T("TangramData\\");
+	m_strCommonDataDir = _strAppDataPath + _T("CreatorData\\");
+	if (!::PathIsDirectory(m_strCommonDataDir)) {
+		CreateDirectory(m_strCommonDataDir, NULL);
+	}
+
 	if (strExeName == _T(""))
 		_strAppDataPath += m_strExeName;
 	else
@@ -3995,7 +6274,7 @@ CString CSpaceTelescope::BuildConfigDataFile(CString strExeName, CString strProd
 	//	_strConfigDataFile += m_strExeName;
 	//else
 	_strConfigDataFile += strExeName;
-	_strConfigDataFile += _T(".tangram");
+	_strConfigDataFile += _T(".policy");
 	m_strConfigDataFile = _strConfigDataFile;
 	return _strConfigDataFile;
 }
@@ -4104,18 +6383,17 @@ HWND CSpaceTelescope::GetMainWnd(int nChildID, CString strAppProxy) {
 	HWND _hMainWnd = NULL;
 	m_pUniverseAppProxy = (IUniverseAppProxy*)::GetWindowLongPtr(m_hCosmosWnd, GWLP_USERDATA);
 	if (m_pUniverseAppProxy == NULL) {
-		HMODULE hProxyModule = ::GetModuleHandle(_T("WebRTHelper.dll"));
-		if (hProxyModule) {
+		if (theApp.m_bAsynLodeMode) {
 			if (m_pUniverseAppProxy == NULL && strAppProxy != _T("")) {
-				::GetModuleFileName(hProxyModule, m_szBuffer, MAX_PATH);
-				CString strPath = m_szBuffer;
-				int nPos = strPath.ReverseFind('\\');
+				CString strPath = m_strProgramFilePath + _T("\\Tangram\\Creator\\");
 				if (::GetModuleHandle(_T("mfc140u.dll"))) {
-					strPath = strPath.Left(nPos + 1) + strAppProxy;
-					::LoadLibrary(strPath);
+					strPath += strAppProxy;
 				}
 				else if (::GetModuleHandle(_T("mfc140ud.dll"))) {
-					strPath = strPath.Left(nPos + 1) + _T("MFCAppProxyD.dll");
+					strPath += _T("MFCAppProxyD.dll");
+				}
+				strPath.Replace(_T("\\\\"), _T("\\"));
+				if (::PathFileExists(strPath)) {
 					::LoadLibrary(strPath);
 				}
 			}
@@ -4145,7 +6423,7 @@ HWND CSpaceTelescope::GetMainWnd(int nChildID, CString strAppProxy) {
 					::SetParent(m_hCosmosWnd, m_hMainWnd);
 					::SetParent(m_hHostBrowserWnd, m_hCosmosWnd);
 				}
-				::PostMessage(m_hCosmosWnd, WM_COSMOSMSG, 0, 20240220);
+				//::PostMessage(m_hCosmosWnd, WM_COSMOSMSG, 0, 20240220);
 				return m_hMainWnd;
 			}
 		}
@@ -5775,6 +8053,26 @@ CString CSpaceTelescope::ComputeHash(CString source)
 	return strRet;
 }
 
+CString CSpaceTelescope::GetPolicyFile() {
+	CString strArg = Creator::GetArgFromCmdLine(_T("/StartInfo"));
+	if (!strArg.IsEmpty()) {
+		int nPos = strArg.Find(_T(":"));
+		if (nPos != -1) {
+			m_bAgentModel = true;
+			strArg = strArg.Mid(nPos + 1);
+			if (::PathFileExists(strArg)) {
+				m_strConfigFile = strArg;
+				nPos = m_strConfigFile.ReverseFind('\\');
+				m_strAgentPath = m_strConfigFile.Left(nPos + 1);
+				m_strAgentExeFile = m_strConfigFile.Mid(nPos + 1);
+				m_strAgentExeFile.Replace(_T(".exe.policy"), _T(""));
+				return m_strAgentExeFile;
+			}
+		}
+	}
+	return _T("");
+}
+
 CString CSpaceTelescope::GetFileMD5(CString strSRC)
 {
 	DWORD dwDesiredAccess = GENERIC_READ;
@@ -5821,6 +8119,11 @@ CString CSpaceTelescope::GetFileMD5(CString strSRC)
 	}
 
 	return _T("");
+}
+
+
+CString GetFileMD5(const CString& dllPath) {
+	return g_pSpaceTelescopeImpl->GetFileMD5(dllPath);
 }
 
 BOOL CSpaceTelescope::IsUserAdministrator()
@@ -6393,28 +8696,25 @@ STDMETHODIMP CSpaceTelescope::InitCLRApp(BSTR strInitXml, LONGLONG* llHandle)
 	CTangramXmlParse m_Parse;
 	if (m_Parse.LoadXml(OLE2T(strInitXml)))
 	{
-		CString strLib = m_strAppPath + m_Parse.attr(_T("libname"), _T(""));
-
-		bool bCheckEVSignaturesAndSHA = false;
-		if (g_pSpaceTelescope->m_bEnableAllDllInject == false) {
-			bCheckEVSignaturesAndSHA = g_pSpaceTelescope->VerfyEVSHASign(strLib);
-			if (!bCheckEVSignaturesAndSHA) {
-				strLib = _T("");
-			}
-		}
-		if (strLib == _T(""))
-			return S_FALSE;
 		CString strObjName = m_Parse.attr(_T("objname"), _T(""));
 		CString strFunctionName = m_Parse.attr(_T("functionname"), _T(""));
-		if (strObjName != _T("") && strFunctionName != _T(""))
-		{
+		if (!strObjName.IsEmpty() && !strFunctionName.IsEmpty()) {
+			CString strLib = m_Parse.attr(_T("libname"), _T(""));
+			CString strLibPath = GetFileByName(m_strAgentPath, strLib);
+			if (::PathFileExists(strLibPath) == false) {
+				strLibPath = GetFileByName(m_strAppPath, strLib);
+			}
+
+			if (::PathFileExists(strLibPath) == false || !VerfyEVSHASign(strLibPath)) {
+				return S_FALSE;
+			}
 			DWORD dwRetCode = 0;
 			ICLRRuntimeHost* pHost = m_pClrHost;
 			if (m_pClrCoreHost)
 				pHost = m_pClrCoreHost;
 			if (pHost) {
 				HRESULT hrStart = pHost->ExecuteInDefaultAppDomain(
-					strLib,
+					strLibPath,
 					strObjName,
 					strFunctionName,
 					strInitXml,
@@ -6455,70 +8755,17 @@ CString g_strUniverseFilePath = _T("");
 CString g_strMFCAgentFilePath = _T("");
 
 static void GetWebRTInfo() {
-	CString g_strCfgDataFile = g_pSpaceTelescopeImpl->BuildConfigDataFile(_T("Creator"), _T("Creator"), _T("Tangram Team"));
-	if (::PathFileExists(g_strCfgDataFile))
-	{
-		CString strData = _T("");
-		wifstream fin(g_strCfgDataFile, wifstream::binary);
-		std::wstringstream stream;
-		stream << fin.rdbuf();
-		strData = stream.str().c_str();
-		fin.close();
-		int nPos = strData.Find(_T("Universe"));
-		if (nPos != -1) {
-			CString strTemp = strData.Mid(nPos + 8);
-			nPos = strTemp.Find(_T(".dll"));
-			strTemp = strTemp.Left(nPos + 4);
-			nPos = strTemp.Find(_T(":"));
-			g_strUniverseFilePath = strTemp.Mid(nPos - 1);
-			if (::PathFileExists(g_strUniverseFilePath) == false) {
-				TCHAR m_szBuffer[MAX_PATH];
-				if (SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0, m_szBuffer) == S_OK) {
-					g_strUniverseFilePath = CString(m_szBuffer);
-					g_strUniverseFilePath += _T("\\Tangram\\Creator\\universe.dll");
-					if (::PathFileExists(g_strUniverseFilePath) == false) {
-						g_strUniverseFilePath = _T("");
-					}
-				}
-			}
+	TCHAR m_szBuffer[MAX_PATH];
+	if (SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0, m_szBuffer) == S_OK) {
+		g_strUniverseFilePath = CString(m_szBuffer);
+		g_strUniverseFilePath += _T("\\Tangram\\Creator\\universe.dll");
+		g_strChromeRTFilePath = CString(m_szBuffer);
+		g_strChromeRTFilePath += _T("\\Tangram\\Creator\\AIAgent.dll");
+		if (::PathFileExists(g_strUniverseFilePath) == false) {
+			g_strUniverseFilePath = _T("");
 		}
-		nPos = strData.Find(_T("AIGCAgent"));
-		if (nPos != -1) {
-			CString strTemp = strData.Mid(nPos + 9);
-			nPos = strTemp.Find(_T(".dll"));
-			strTemp = strTemp.Left(nPos + 4);
-			nPos = strTemp.Find(_T(":"));
-			g_strChromeRTFilePath = strTemp.Mid(nPos - 1);
-			if (::PathFileExists(g_strChromeRTFilePath) == false) {
-				TCHAR m_szBuffer[MAX_PATH];
-				if (SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0, m_szBuffer) == S_OK) {
-					g_strChromeRTFilePath = CString(m_szBuffer);
-					g_strChromeRTFilePath += _T("\\Tangram\\Creator\\AIAgent.dll");
-					if (::PathFileExists(g_strChromeRTFilePath) == false) {
-						g_strChromeRTFilePath = _T("");
-					}
-				}
-			}
-			if (g_strChromeRTFilePath != _T("")) {
-				nPos = g_strChromeRTFilePath.ReverseFind('\\');
-				g_strMFCAgentFilePath = g_strChromeRTFilePath.Left(nPos + 1);
-			}
-		}
-	}
-	else
-	{
-		TCHAR m_szBuffer[MAX_PATH];
-		if (SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0, m_szBuffer) == S_OK) {
-			g_strUniverseFilePath = CString(m_szBuffer);
-			g_strUniverseFilePath += _T("\\Tangram\\Creator\\universe.dll");
-			g_strChromeRTFilePath = CString(m_szBuffer);
-			g_strChromeRTFilePath += _T("\\Tangram\\Creator\\AIAgent.dll");
-			if (::PathFileExists(g_strUniverseFilePath) == false) {
-				g_strUniverseFilePath = _T("");
-			}
-			if (::PathFileExists(g_strChromeRTFilePath) == false) {
-				g_strChromeRTFilePath = _T("");
-			}
+		if (::PathFileExists(g_strChromeRTFilePath) == false) {
+			g_strChromeRTFilePath = _T("");
 		}
 	}
 }
@@ -6538,19 +8785,19 @@ __declspec(dllexport) bool __stdcall  InitBrowser() {
 			}
 		}
 	}
-	if (hModuleAgent) {
-		auto t = create_task([]()
-			{
-				while (1)
-				{
-					Sleep(1500);
-					::PostThreadMessage(g_pSpaceTelescope->m_dwThreadID, WM_COSMOSMSG, 0, 20250531);
-					::PostThreadMessage(g_pSpaceTelescope->m_dwThreadID, WM_CHROMEAPPINIT, 0, 0);
-					break;
-				}
-				return;
-			});
-	}
+	//if (hModuleAgent) {
+	//	auto t = create_task([]()
+	//		{
+	//			while (1)
+	//			{
+	//				Sleep(1500);
+	//				::PostThreadMessage(g_pSpaceTelescope->m_dwThreadID, WM_COSMOSMSG, 0, 20250531);
+	//				::PostThreadMessage(g_pSpaceTelescope->m_dwThreadID, WM_CHROMEAPPINIT, 0, 0);
+	//				break;
+	//			}
+	//			return;
+	//		});
+	//}
 	return false;
 }
 
@@ -7422,8 +9669,134 @@ void CSpaceTelescope::WebContentsDestroyed(HWND hWebView, HWND hBrowser)
 
 void CSpaceTelescope::BrowserRemoved(CChromeBrowserBase* browser, HWND hBrowser)
 {
-	if (browser)
-	{
+}
+
+CString CSpaceTelescope::GetCreatorData(CString strKey)
+{
+	if (strKey.CompareNoCase(_T("productname")) == 0) {
+		return m_strProductName;
+	}
+	else if (strKey.CompareNoCase(_T("companyname")) == 0) {
+		return m_strCompanyName;
+	}
+	else if (strKey.CompareNoCase(_T("CmdLine")) == 0) {
+		return m_strCmdLine;
+	}
+	else if (strKey.CompareNoCase(_T("enabledomipcevent")) == 0) {
+		if (m_strCreatorAppInitData.CompareNoCase(_T("OK")))
+			return _T("true");
+		return _T("false");
+	}
+	else if (strKey.CompareNoCase(_T("AgentModel")) == 0) {
+		if (m_bAgentModel)
+			return _T("true");
+	}
+	else if (strKey.Find(_T("CreatorInitInfo-")) == 0) {
+		CString strXmlFile = _T("");
+		strXmlFile.Format(_T("%s%s.CreatorKey"), m_strCommonDataDir, m_strExeName + _T(".exe"));
+		if (strKey.CompareNoCase(_T("CreatorInitInfo-") + m_strCreatorAppKey + _T("@") + m_strCreatorAgentKey) == 0) {
+			if (::PathFileExists(strXmlFile))DeleteFile(strXmlFile);
+			m_strCreatorAppInitData = _T("OK");
+			return _T("OK");
+		}
+		m_bEnableAllDllInject = true;
+		CString strXmlData = _T("");
+		strXmlData.Format(_T("<CreatorKey appsha256key='%s' agentsha256key='%s' />"), m_strCreatorAppKey, m_strCreatorAgentKey);
+		CTangramXmlParse m_Parse;
+		if (m_Parse.LoadXml(strXmlData))
+			m_Parse.SaveFile(strXmlFile);
+	}
+
+	return _T("");
+}
+
+void CSpaceTelescope::SetCreatorData(CString strKey, CString strVal) {
+	if (strKey == _T("AgentPath")) {
+		if (m_strAgentPath == _T(""))
+			m_strAgentPath = strVal;
+		CosmosLoad();
+		return;
+	}
+	else if (strKey == _T("CmdLine")) {
+		m_strCmdLine = strVal;
+		return;
+	}
+	//else if (strKey == _T("needinject")) {
+	//	CTangramXmlParse m_Parse;
+	//	if (m_Parse.LoadFile(m_strConfigFile))
+	//	{
+	//		CString strInject = m_Parse.attr(_T("inject"), _T(""));
+	//		strInject.Trim();
+	//		if (strInject.CompareNoCase(strVal)) {
+	//			m_Parse.put_attr(_T("inject"), strVal);
+	//			m_Parse.SaveFile(m_strConfigFile);
+	//		}
+	//	}
+	//	return;
+	//}
+
+	if (m_bAgentModel && strVal == _T("InitStartInfo") && ::PathFileExists(m_strStartupURL) == false) {
+		m_strStartupURL = m_strAgentPath + m_strExeName + _T(".app.html");
+		if (::PathFileExists(m_strStartupURL))
+			return;
+		CString strSRC = _T("");
+		if (strKey == _T("CLRMDIAppInfo")) {
+			strSRC = m_strWebRTPath + _T("template\\");
+			strSRC += _T("TangramMDIForm.app.html");
+		}
+		else if (strKey == _T("CLRSDIAppInfo")) {
+			strSRC = m_strWebRTPath + _T("template\\");
+			strSRC += _T("TangramForm.app.html");
+		}
+		else if (strKey == _T("MFCMDTApp")) {
+			strSRC = m_strWebRTPath + _T("template\\");
+			strSRC += _T("NativeMFCMDT.app.html");
+		}
+		else if (strKey == _T("MFCMDTAppEx")) {
+			strSRC = m_strWebRTPath + _T("template\\");
+			strSRC += _T("NativeMFCMDTEx.app.html");
+		}
+		else if (strKey == _T("MFCMDIApp")) {
+			strSRC = m_strWebRTPath + _T("template\\");
+			strSRC += _T("NativeMFCMDI.app.html");
+		}
+		else if (strKey == _T("MFCMDIAppEx")) {
+			strSRC = m_strWebRTPath + _T("template\\");
+			strSRC += _T("NativeMFCMDIEx.app.html");
+		}
+		else if (strKey == _T("MFCSDIApp")) {
+			strSRC = m_strWebRTPath + _T("template\\");
+			strSRC += _T("NativeMFCSDI.app.html");
+		}
+		else if (strKey == _T("MFCSDIAppEx")) {
+			strSRC = m_strWebRTPath + _T("template\\");
+			strSRC += _T("NativeMFCSDIEx.app.html");
+		}
+		::CopyFile(strSRC, m_strStartupURL, false);
+		CTangramXmlParse m_Parse;
+		if (m_Parse.LoadFile(m_strWebRTPath + _T("InitData.xml"))) {
+			CString strName = _T("");
+			for (int i = 0; i < m_Parse.GetCount(); i++)
+			{
+				CTangramXmlParse* pChild = m_Parse.GetChild(i);
+				strName = pChild->text();
+				if (pChild->attrBool(_T("folder")))
+				{
+					CString strFolder = m_strAgentPath + strName + _T("\\");
+					CreateDirectory(strFolder, NULL);
+					CopyFolder(m_strWebRTPath + strName + _T("\\"), strFolder);
+				}
+				else
+				{
+					CString strTargetName = strName;
+					if (strName.CollateNoCase(_T("WorkSpace.NET.dll")) == 0) {
+						strTargetName = m_strExeName + strName;
+					}
+					::CopyFile(m_strWebRTPath + strName, m_strAgentPath + strTargetName, false);
+				}
+			}
+		}
+		return;
 	}
 }
 

@@ -966,6 +966,9 @@ namespace Universe
 		static Wormhole^ GetWormholeFromObj(Object^ obj);
 		static Xobj^ Observe(Control^ ctrl, String^ key, String^ strXobjXml);
 		static Xobj^ BindWndNucleusToDOM(Control^ ctrl, String^ key, String^ strXobjXml);
+		static String^ GetCreatorData(String^ strKey);
+		static void SetCreatorData(String^ strKey, String^ val);
+		//Assembly^ CompileWorkSpaceCsWithCosmos();
 
 		Universe::IWebRTApp^ m_pUniverseAppProxy;
 

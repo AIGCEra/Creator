@@ -251,7 +251,11 @@ namespace Browser {
 								CString strURLHeader = strURL.Left(nPos2);
 								if (strURLHeader.CompareNoCase(_T("host")) == 0)
 								{
-									strURL = g_pSpaceTelescope->m_strAppPath + strURL.Mid(nPos2 + 1);
+									CString s = strURL.Mid(nPos2 + 1);
+									if (g_pSpaceTelescope->m_bAgentModel)
+										strURL = g_pSpaceTelescope->m_strAgentPath + s;
+									else
+										strURL = g_pSpaceTelescope->m_strAppPath + s;
 								}
 							}
 							if (strURL != _T(""))
@@ -1032,7 +1036,11 @@ namespace Browser {
 								CString strURLHeader = strURL.Left(nPos2);
 								if (strURLHeader.CompareNoCase(_T("host")) == 0)
 								{
-									strURL = g_pSpaceTelescope->m_strAppPath + strURL.Mid(nPos2 + 1);
+									CString s = strURL.Mid(nPos2 + 1);
+									if (g_pSpaceTelescope->m_bAgentModel)
+										strURL = g_pSpaceTelescope->m_strAgentPath + s;
+									else
+										strURL = g_pSpaceTelescope->m_strAppPath + s;
 								}
 							}
 							if (strURL != _T(""))
@@ -1042,16 +1050,7 @@ namespace Browser {
 									m_strAdditionalUrls += _T("|");
 							}
 						}
-						if (g_pSpaceTelescope->m_nNativeAppType == 20 || g_pSpaceTelescope->m_nNativeAppType == 30) {
-							//auto t = create_task([this]()
-							//	{
-							//		while (1)
-							//		{
-							//			Sleep(500);
-							//			break;
-							//		}
-							//		return;
-							//	});
+						if ((::GetModuleHandle(_T("MSCOREE.dll")) != NULL) || (::GetModuleHandle(_T("hostfxr.dll")) != NULL)) {
 							Sleep(500);
 							::PostMessage(m_hWnd, WM_COSMOSMSG, 20210411, 0);
 						}
@@ -1321,7 +1320,11 @@ namespace Browser {
 								CString strURLHeader = strURL.Left(nPos2);
 								if (strURLHeader.CompareNoCase(_T("host")) == 0)
 								{
-									strURL = g_pSpaceTelescope->m_strAppPath + strURL.Mid(nPos2 + 1);
+									CString s = strURL.Mid(nPos2 + 1);
+									if (g_pSpaceTelescope->m_bAgentModel)
+										strURL = g_pSpaceTelescope->m_strAgentPath + s;
+									else
+										strURL = g_pSpaceTelescope->m_strAppPath + s;
 								}
 							}
 							if (strURL != _T(""))
@@ -1346,9 +1349,6 @@ namespace Browser {
 						}
 					}
 				}
-
-				//::MessageBox(NULL, m_strMainWndXml, L"", MB_OK);
-				//::MessageBox(NULL, g_pSpaceTelescope->m_strAppXml, L"", MB_OK);
 				CustomizedMainWindowElement(m_strMainWndXml);
 			}
 			if (m_strDocXml != _T(""))
@@ -1365,16 +1365,6 @@ namespace Browser {
 			{
 				Sleep(500);
 				::PostMessage(m_hWnd, WM_COSMOSMSG, 20220816, 0);
-				//auto t = create_task([this]()
-				//	{
-				//		while (1)
-				//		{
-				//			Sleep(500);
-				//			::PostMessage(m_hWnd, WM_COSMOSMSG, 20220816, 0);
-				//			break;
-				//		}
-				//		return;
-				//	});
 			}
 		}
 		else if (strId.CompareNoCase(_T("TANGRAM_UI_MESSAGE")) == 0)
@@ -1736,7 +1726,11 @@ namespace Browser {
 								CString strURLHeader = strURL.Left(nPos2);
 								if (strURLHeader.CompareNoCase(_T("host")) == 0)
 								{
-									strURL = g_pSpaceTelescope->m_strAppPath + strURL.Mid(nPos2 + 1);
+									CString s = strURL.Mid(nPos2 + 1);
+									if (g_pSpaceTelescope->m_bAgentModel)
+										strURL = g_pSpaceTelescope->m_strAgentPath + s;
+									else
+										strURL = g_pSpaceTelescope->m_strAppPath + s;
 								}
 							}
 							if (strURL != _T(""))
@@ -2345,7 +2339,11 @@ namespace Browser {
 						CString strURLHeader = strUrl.Left(nPos2);
 						if (strURLHeader.CompareNoCase(_T("host")) == 0)
 						{
-							strUrl = g_pSpaceTelescope->m_strAppPath + strUrl.Mid(nPos2 + 1);
+							CString s = strUrl.Mid(nPos2 + 1);
+							if (g_pSpaceTelescope->m_bAgentModel)
+								strUrl = g_pSpaceTelescope->m_strAgentPath + s;
+							else
+								strUrl = g_pSpaceTelescope->m_strAppPath + s;
 						}
 					}
 					strUrls = strUrls + strUrl + _T("|");
@@ -2500,7 +2498,11 @@ namespace Browser {
 						CString strURLHeader = strUrl.Left(nPos2);
 						if (strURLHeader.CompareNoCase(_T("host")) == 0)
 						{
-							strUrl = g_pSpaceTelescope->m_strAppPath + strUrl.Mid(nPos2 + 1);
+							CString s = strUrl.Mid(nPos2 + 1);
+							if (g_pSpaceTelescope->m_bAgentModel)
+								strUrl = g_pSpaceTelescope->m_strAgentPath + s;
+							else
+								strUrl = g_pSpaceTelescope->m_strAppPath + s;
 						}
 					}
 					strUrls = strUrls + strUrl + _T("|");
@@ -2655,7 +2657,7 @@ namespace Browser {
 		}
 		else if (strMsgID == _T("OPEN_URL"))
 		{
-			CString strPath = g_pSpaceTelescope->m_strAppPath;
+			CString strPath = g_pSpaceTelescope->m_strAgentPath;
 			CString strUrl = pSession->GetString(_T("openurl"));
 			long nPos = pSession->GetLong(_T("BrowserWndOpenDisposition"));
 			int _nPos = strUrl.Find(_T("host:"));
@@ -2667,6 +2669,7 @@ namespace Browser {
 				strUrl += _T("|");
 				strUrl.Replace(_T("||"), _T("|"));
 			}
+
 			if (m_pChromeRenderFrameHost)
 			{
 				if (nPos > 0x000a || nPos == 0)

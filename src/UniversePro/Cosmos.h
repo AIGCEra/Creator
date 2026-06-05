@@ -81,6 +81,8 @@ class CCloudWinForm;
 class CCloudMDTFrame;
 class CWormhole;
 
+extern HANDLE g_hEvent;
+
 struct CommonThreadInfo
 {
 	HHOOK				m_hGetMessageHook;
@@ -178,7 +180,6 @@ public:
 	CSpaceTelescope();
 	virtual ~CSpaceTelescope();
 
-	int										m_nNativeAppType;
 	int										m_nRef;
 	int										m_nAppID;
 	int 									launchMode;
@@ -187,6 +188,7 @@ public:
 
 	int										m_nTangramObj;
 	int										m_nWaitTabCounts = 0;
+
 #ifdef _DEBUG
 	int										m_nJsObj;
 	int										m_nTangram;
@@ -197,6 +199,7 @@ public:
 	int										m_nOfficeDocsSheet;
 	int										m_nTangramNodeCommonData;
 #endif
+	bool									m_bAgentModel;
 	bool									m_bIsClrCoreApp;
 	bool									m_bIsProcessCmdforNewOrOpen = false;;
 	bool									m_bMainWndNotFound = true;
@@ -215,8 +218,10 @@ public:
 	CString									m_strClrCoreVer;
 	CString									m_strMiniClrCoreVer;
 	CString									m_strDefaultNtpXml;
+	CString									m_strCmdLine;
 	CString									m_strAppProxyID;
 	CString									m_strWebRTPath;
+	CString									m_strCommonDataDir;
 
 	LPCTSTR									m_lpszSplitterClass;
 	CImageList								m_DocTemplateImageList;
@@ -329,6 +334,7 @@ public:
 	void WebRTInit();
 	void EclipseInit();
 	void ExitInstance();
+	void VerifyandMonitorInit();
 	//void CopyAppRuntime(CString BaseFile, CString strFolder, CString strSourceScript);
 	void InitWebRTDocManager();
 	void FireAppEvent(CWebRTEvent*);
@@ -343,6 +349,7 @@ public:
 	CString EncodeFileToBase64(CString strSRC);
 	CString InitEclipse(_TCHAR* jarFile);
 	CString GetOfficePath();
+	CString GetPolicyFile();
 	CString ComputeHash(CString source);
 	CString GetXmlData(CString strName, CString strXml);
 	IXobj* ObserveXml(HWND hWnd, CString strKey, CString strXml);
@@ -442,17 +449,33 @@ private:
 	bool								m_bCommercialEdition;
 	bool								m_bOldVerFilesRemoved;
 	HWND								m_hCreatingWnd;
+	CString								m_strProductName;
+	CString								m_strCompanyName;
 	CString								m_strOfficeAppIDs;
 	CString								m_strSubProcessPath;
 	CString								m_strExcludeAppExtenderIDs;
+	CString								m_strAgentExeFile;
+	CString								m_strCreatorAppData;
+	CString								m_strCreatorAgentData;
+	CString								m_strCreatorAppKey;
+	CString								m_strCreatorAgentKey;
+	CString								m_strCreatorAppInitData;
+	CString								m_strCreatorAppUnSignedData;
+	CString								m_strCreatorAgentUnSignedData;
+	CString								m_strCreatorAppWhiteListData;
+	CString								m_strCreatorAgentWhiteListData;
+
+	CString								m_strCreatorMonitorExt;
+	CString								m_strCreatorAppCheckExt;
+	CString								m_strCreatorAgentCheckExt;
+	CString								m_strCreatorEvSignCheckExt;
 
 	CWindow								m_HelperWnd;
-	CComObject<CXobjCollection>* m_pRootNodes;
+	CComObject<CXobjCollection>*		m_pRootNodes;
 	CertificateInfo						m_ProxyCertificateInfo;
 	CertificateInfo						m_DefaultProxyCertificateInfo;
 	CertificateInfo						m_WhiteListCertificateInfo;
-	map<CString, CString>				m_mapWhiteList;
-	map<CString, CString>				m_mapCheckedWhiteList;
+	map<CString, CString>				m_mapAppWhiteListDic;
 	map<DWORD, CommonThreadInfo*>		m_mapThreadInfo;
 
 	CString GetTextResource(CString strFile, int, CString strType);
@@ -460,9 +483,8 @@ private:
 	CertificateInfo GetSignatureInfoFromFile(const wchar_t* filePath);
 	bool CompareFileSignatures(const wchar_t* file1, const wchar_t* file2, ComparisonLevel level = LEVEL_STRICT);
 	bool CompareFileEVSignatures(CString strFile1, CString strFile2);
-	void GetEnableAllDllInjectInfo();
 	void RemoveOldWebRTFiles(CString strBase, CString strVer);
-	void GetDefaultInitWebPage();
+	//void GetDefaultInitWebPage();
 
 	void Run();
 	void CosmosLoad();
@@ -486,6 +508,10 @@ private:
 	void InsertMsgData(HWND hXobj, CString strKey, __int64 llVal);
 	void InsertMsgData(HWND hXobj, CString strKey, long lVal);
 	void InsertMsgData(HWND hXobj, CString strKey, float fVal);
+	CString GetCreatorData(CString strKey);
+	void SetCreatorData(CString strKey, CString strVal);
+	
+	CString GetFileByName(const CString& rootPath, const CString& strFileName);
 
 	int CalculateByteMD5(BYTE* pBuffer, int BufferSize, CString& MD5);
 	bool CheckUrl(CString& url);
@@ -536,6 +562,7 @@ private:
 
 	//VerfyEVSHASign:
 	bool VerfyEVSHASign(CString strLib);
+	void OnMonitorNotify(CString strInfo, int nAction);
 
 	wstring Json2Xml(wstring strJson, bool bJsonstr);
 	WebRTRunModel GetWebRTRunModel();

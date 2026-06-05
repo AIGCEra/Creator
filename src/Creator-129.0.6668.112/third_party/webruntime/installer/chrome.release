@@ -15,6 +15,7 @@ AIAgent.dll: %(ChromeDir)s\
 ..\..\..\..\Universe\outputWebPage\*.*: %(ChromeDir)s\
 ..\..\..\..\Universe\outputWebPage\template\*.*: %(ChromeDir)s\template\
 ..\..\..\..\Universe\outputWebPage\template\image\*.*: %(ChromeDir)s\template\image\
+..\..\..\..\Universe\outputBinary\component\*.*: %(ChromeDir)s\component\
 ..\..\..\..\Universe\outputWebPage\WebPage\*.*: %(ChromeDir)s\WebPage\
 ..\..\..\..\Universe\outputWebPage\image\*.*: %(ChromeDir)s\image\
 ..\..\..\..\Universe\outputBinary\xml\*.*: %(ChromeDir)s\xml\

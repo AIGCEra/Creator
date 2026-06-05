@@ -27,6 +27,8 @@ based
 #pragma once
 
 #include <ShlObj.h>
+#include <shellapi.h>
+#include <shlwapi.h>
 #include <atlstr.h>
 #include <map>
 #include <string>
@@ -822,6 +824,7 @@ namespace CommonUniverse {
 		CString m_strExeName = _T("");
 		CString m_strWebRTVer = _T("");
 		CString m_strAppPath = _T("");
+		CString m_strAgentPath = _T("");
 		CString m_strConfigDataFile = _T("");
 		CString m_strAppDataPath = _T("");
 		CString m_strCurrentAppID = _T("");
@@ -890,10 +893,6 @@ namespace CommonUniverse {
 		map<HWND, WebRTFrameWndInfo*>			m_mapWebRTFrameWndInfo;
 		map<void*, IUnknown*>					m_mapObjects;
 		map<IDispatch*, CString>				m_mapObjEventDic;
-		//map<DWORD, LPPROCESSENTRY32>			m_mapProcessInfo;
-		map<DWORD, DWORD>						m_mapProcessInfo2;
-		map<CString, HWND>						m_mapProcessBindInfo;
-		map<CString, CString>					m_mapProcessConfig;
 
 		virtual void Run() {}
 		virtual void BrowserAppStart() {}
@@ -914,9 +913,9 @@ namespace CommonUniverse {
 		virtual void InsertMsgData(HWND hXobj, CString strKey, __int64 llVal) {}
 		virtual void InsertMsgData(HWND hXobj, CString strKey, CString strVal) {}
 		virtual void InserttoDataMap(int nType, CString strKey, void* pData) {}
-		virtual void AttachControlBar(WebRTFrameWndInfo* pInfo, HWND hCtrlBar) { }
+		virtual void AttachControlBar(WebRTFrameWndInfo* pInfo, HWND hCtrlBar) {}
 		virtual void OnUpdateParent(HWND hPWnd, HWND hWnd, int DeviceScaleFactor) {}
-		virtual void AttachMDIChild(HWND hFrame, HWND hMDIChild, HWND hChildClient) { }
+		virtual void AttachMDIChild(HWND hFrame, HWND hMDIChild, HWND hChildClient) {}
 		virtual void OnNetworkChangeNotify(int ConnectType, __int64 NetworkHandle) {}
 		virtual void OnDocumentOnLoadCompleted(CChromeRenderFrameHost*, HWND hHtmlWnd, void*) {}
 		virtual void OnWebRTMessage(HWND hWnd, CChromeRenderFrameHost*, CommonUniverse::IPCMsg* pIPCInfo) {}
@@ -950,6 +949,11 @@ namespace CommonUniverse {
 		virtual CBrowserImpl* GetBrowserImpl(HWND hWnd) { return nullptr; }
 		virtual CTabStatsTrackerDelegate* SetTabStatsTrackerDelegate() { return nullptr; }
 		virtual WebRTFrameWndInfo* InsertWebRTFrameWndInfo(HWND hWnd) { return NULL; }
+		virtual bool VerfyEVSHASign(CString strLib) { return false; }
+		virtual bool ProcessMsg(MSG msg) { return false; }
+		virtual CString GetCreatorData(CString strKey) { return _T(""); }
+		virtual void SetCreatorData(CString strKey, CString strVal) {}
+		virtual CString GetFileByName(const CString& rootPath, const CString& strFileName) { return _T(""); }
 	};
 
 	class IWindowProvider {

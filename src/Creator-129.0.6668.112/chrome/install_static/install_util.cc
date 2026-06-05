@@ -31,11 +31,8 @@
 #include "chrome/install_static/user_data_dir.h"
 #include "components/nacl/common/buildflags.h"
 // begin Add by TangramTeam
-#include <stdlib.h>
-#include <atlstr.h>
-#include <shlwapi.h>
-
 #include "third_party/webruntime/Markup.cpp"
+#include "third_party/webruntime/UniverseForChromium.h"
 std::wstring g_strConfigFile = L"";
 std::wstring g_strProductName = L"";
 std::wstring g_strCompanyPath = L"";
@@ -523,41 +520,26 @@ std::wstring& AppendChromeInstallSubDirectory(const InstallConstants& mode,
                                               std::wstring* path) {
   // begin Add by TangramTeam
   if (g_strConfigFile == L"") {
-    TCHAR m_szBuffer[MAX_PATH];
-    memset(m_szBuffer, 0, sizeof(m_szBuffer));
-    TCHAR szDriver[MAX_PATH] = {0};
-    TCHAR szDir[MAX_PATH] = {0};
-    TCHAR szExt[MAX_PATH] = {0};
-    TCHAR szFile2[MAX_PATH] = {0};
-    ::GetModuleFileName(NULL, m_szBuffer, MAX_PATH);
-    _tsplitpath_s(m_szBuffer, szDriver, szDir, szFile2, szExt);
-    g_strConfigFile = m_szBuffer;
-    CString strExePath = m_szBuffer;
-    strExePath.MakeLower();
-    bool bProxy = strExePath.Find(_T("loader.exe")) != -1;
-    if (bProxy) {
-      strExePath.Replace(_T("loader.exe"), _T(".exe"));
-      bProxy = ::PathFileExists(strExePath);
-    }
-    g_strConfigFile.append(L".tangram");
-    CString strPath = g_strConfigFile.c_str();
-    strPath.MakeLower();
-    if (bProxy) {
-      strPath.Replace(_T("loader.exe.tangram"), _T(".exe.tangram"));
-      if (::PathFileExists(strPath)) {
-        CopyFile(strPath, g_strConfigFile.c_str(), false);
+    if (g_pSpaceTelescopeImpl == nullptr) {
+      HMODULE hModule = ::GetModuleHandle(L"universe.dll");
+      if (hModule != nullptr) {
+        CommonUniverse::GetWebRTImplFunction GetWebRTImplFunction =
+            (CommonUniverse::GetWebRTImplFunction)GetProcAddress(
+                hModule, "GetWebRTImpl");
+        if (GetWebRTImplFunction != NULL) {
+          IWebRT* pCosmos = nullptr;
+          g_pSpaceTelescopeImpl = GetWebRTImplFunction(&pCosmos);
+        }
       }
     }
-    CMarkup mk;
-    if (mk.Load(g_strConfigFile.c_str()) && mk.FindNode()) {
-      g_strCompanyPath = mk.GetAttrib(_T("companypathname"));
-      g_strProductName = mk.GetAttrib(_T("productname"));
-      if (g_strProductName == L"") {
-        g_strProductName = kProductPathName;
-      }
-    } else {
-      g_strProductName = szFile2;
-      g_strCompanyPath = g_strProductName.append(L" Team");
+  }
+  if (g_pSpaceTelescopeImpl) {
+    g_strCompanyPath =
+        LPCTSTR(g_pSpaceTelescopeImpl->GetCreatorData(_T("companyname")));
+    g_strProductName =
+        LPCTSTR(g_pSpaceTelescopeImpl->GetCreatorData(_T("productname")));
+    if (g_strProductName == L"") {
+      g_strProductName = kProductPathName;
     }
   }
   if (g_strProductName != L"") {
