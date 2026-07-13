@@ -6,8 +6,8 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{011E9CC0-239A-4EC0-BB56-6EAC757704DF}</ProjectGuid>
     <OutputType>WinExe</OutputType>
-    <RootNamespace>Loader</RootNamespace>
-    <AssemblyName>Loader</AssemblyName>
+    <RootNamespace>Harness</RootNamespace>
+    <AssemblyName>Harness</AssemblyName>
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>

@@ -134,7 +134,6 @@ class CEclipseWnd;
 class CUniverse;
 class CXobjEvents;
 class CTangramTabCtrl;
-class CWebRTAppCtrl;
 class CTangramListView;
 class CWebRTEvent;
 class CNuclei;

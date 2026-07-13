@@ -557,7 +557,16 @@ namespace Universe
 					{
 						Form^ form = Forms::Application::OpenForms[0];
 						if (!::IsWindow(g_pSpaceTelescopeImpl->m_hMainWnd)) {
-							g_pSpaceTelescopeImpl->SetCreatorData(form->IsMdiContainer ? _T("CLRMDIAppInfo") : _T("CLRSDIAppInfo"), _T("InitStartInfo"));
+							bool bMFC = (::GetModuleHandle(_T("mfc140u.dll")) != NULL) || (::GetModuleHandle(_T("mfc140ud.dll")) != NULL);
+
+							if (bMFC == false) {
+								g_pSpaceTelescopeImpl->SetCreatorData(form->IsMdiContainer ? _T("CLRMDIAppInfo") : _T("CLRSDIAppInfo"), _T("InitStartInfo"));
+								g_pSpaceTelescopeImpl->SetMainWnd((HWND)form->Handle.ToPointer());
+								//	WebRT::MainForm::set((Form^)form);
+							//	if (WebRT::WebRuntimeInit()) {
+							//		form->Close();
+							//	}
+							}
 						}
 					}
 				}
@@ -859,7 +868,6 @@ namespace Universe
 		strAIGCAgentPath = strAIGCAgentPath.Left(nPos + 1) + _T("AIAgent.dll");
 		if (::PathFileExists(strAIGCAgentPath))
 			g_pSpaceTelescopeImpl->m_hWebRTProxyModel = ::LoadLibrary(strAIGCAgentPath);
-
 		if (g_pSpaceTelescopeImpl->m_hWebRTProxyModel) {
 			typedef bool(__stdcall* _IsBindWinApp)();
 			_IsBindWinApp _pIsBindWinAppFunction;

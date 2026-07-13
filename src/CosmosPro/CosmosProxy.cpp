@@ -84,7 +84,10 @@ IWebRT* GetWebRT()
 			}
 			if (hModule == nullptr)
 			{
-				::GetModuleFileName(::GetModuleHandle(_T("Cosmos.dll")), m_szBuffer, MAX_PATH);
+				if (::GetModuleHandle(_T("hostfxr.dll")) != NULL)
+					::GetModuleFileName(::GetModuleHandle(_T("CosmosCore.dll")), m_szBuffer, MAX_PATH);
+				else
+					::GetModuleFileName(::GetModuleHandle(_T("Cosmos.dll")), m_szBuffer, MAX_PATH);
 				CString strPath = m_szBuffer;
 				int nPos = strPath.ReverseFind('\\');
 				strPath = strPath.Left(nPos + 1) + _T("universe.dll");
@@ -641,7 +644,7 @@ Object^ CWebRTProxy::InitControl(Form^ pForm, Control^ pCtrl, bool bSave, CTangr
 		{
 			m_pMainClientCtrl = GetClient(pForm);
 		}
-		for each (Control ^ pChild in pCtrl->Controls)
+		for each(Control ^ pChild in pCtrl->Controls)
 		{
 			String^ name = pChild->Name;
 			Type^ pType = pChild->GetType();
@@ -832,7 +835,7 @@ Object^ CWebRTProxy::InitXobj(IXobj* _pXobj, Control^ pCtrl, bool bSave, CTangra
 	if (pXobj)
 	{
 		pNuclei = pXobj->Nuclei;
-		for each (Control ^ pChild in pCtrl->Controls)
+		for each(Control ^ pChild in pCtrl->Controls)
 		{
 			Type^ pType = pChild->GetType();
 			String^ strType = pType->FullName;
@@ -1605,7 +1608,7 @@ IDispatch* CWebRTProxy::CreateCLRObjRemote(CString bstrObjID, CString strXmlData
 							//mainForm->Height = 1200;
 							mainForm->ResumeLayout();
 						}
-						for each (Control ^ pChild in mainForm->Controls)
+						for each(Control ^ pChild in mainForm->Controls)
 						{
 							if (pChild->Dock == DockStyle::Fill)
 							{
@@ -1726,7 +1729,7 @@ IDispatch* CWebRTProxy::CreateCLRObj(CString bstrObjID)
 						Universe::WebRT::m_pMainForm = Forms::Application::OpenForms[0];
 					}
 					else {
-						for each (Form ^ form in Forms::Application::OpenForms)
+						for each(Form ^ form in Forms::Application::OpenForms)
 						{
 							if (form->Modal == false) {
 								if (form->GetType()->FullName->ToLower() == strName) {
@@ -2023,7 +2026,7 @@ IDispatch* CWebRTProxy::CreateCLRObj(CString bstrObjID)
 							//mainForm->Height = 1200;
 							mainForm->ResumeLayout();
 						}
-						for each (Control ^ pChild in mainForm->Controls)
+						for each(Control ^ pChild in mainForm->Controls)
 						{
 							if (pChild->Dock == DockStyle::Fill)
 							{
@@ -2085,7 +2088,7 @@ IDispatch* CWebRTProxy::CreateCLRObj(CString bstrObjID)
 
 Control^ CWebRTProxy::GetClient(Form^ form) {
 	Control^ ClientCtrl = nullptr;
-	for each (Control ^ ctrl in form->Controls)
+	for each(Control ^ ctrl in form->Controls)
 	{
 		Type^ pType = ctrl->GetType();
 		String^ strType = pType->FullName;
@@ -2450,7 +2453,7 @@ HWND CWebRTProxy::GetWinForm(HWND hWnd, __int64& nMDIClient)
 					if (::IsChild(hClient, hWnd))
 					{
 						nMDIClient = (__int64)10;
-						for each (Control ^ child in ctrl->Controls)
+						for each(Control ^ child in ctrl->Controls)
 						{
 							HWND hForm = (HWND)child->Handle.ToPointer();
 							if (::IsChild(hForm, hWnd))
@@ -2934,7 +2937,7 @@ void CWebRTProxy::OnCloudMsgReceived(CSession* pSession)
 						CString strCtrls = pSession->GetString(L"ctrls");
 						String^ _strCtrls = marshal_as<String^>(strCtrls);
 						cli::array<String^, 1>^ s = _strCtrls->Split(';');
-						for each (String ^ _strSubObjName in s)
+						for each(String ^ _strSubObjName in s)
 						{
 							if (String::IsNullOrEmpty(_strSubObjName) == false)
 							{
@@ -3331,7 +3334,7 @@ void CWebRTProxy::CosmosAction(BSTR bstrXml, void* pvoid)
 		if (strXml.CompareNoCase(_T("InitAppByLoader")) == 0) {
 			g_pSpaceTelescopeImpl->m_hMainWnd = NULL;
 			bool bInModal = false;
-			for each (Form ^ form in Forms::Application::OpenForms)
+			for each(Form ^ form in Forms::Application::OpenForms)
 			{
 				HWND hWnd = (HWND)form->Handle.ToPointer();
 				bInModal = form->Modal;
@@ -3397,7 +3400,7 @@ void CWebRTProxy::CosmosAction(BSTR bstrXml, void* pvoid)
 				{
 					g_pSpaceTelescopeImpl->m_hMainWnd = NULL;
 					bool bInModal = false;
-					for each (Form ^ form in Forms::Application::OpenForms)
+					for each(Form ^ form in Forms::Application::OpenForms)
 					{
 						HWND hWnd = (HWND)form->Handle.ToPointer();
 						bInModal = form->Modal;
@@ -3900,7 +3903,7 @@ System::Reflection::Assembly^ CWebRTProxy::OnAssemblyResolve(System::Object^ sen
 		return am;
 	}
 	String^ dllName = amName + ".dll";
-	if (dllName == L"cosmos.dll") {
+	if (dllName == L"cosmos.dll"|| dllName == L"cosmoscore.dll") {
 		Universe::WebRT^ pApp = Universe::WebRT::GetWebRT();
 		am = pApp->GetType()->Assembly;
 		//theAppProxy.m_mapResolveAssembly[strAmName] = am;

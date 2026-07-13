@@ -1202,7 +1202,7 @@ BOOL CXobj::Create(DWORD dwStyle, const RECT& rect, CWnd* pParentWnd, UINT nID, 
 						if (strURLHeader.CompareNoCase(_T("host")) == 0)
 						{
 							CString s = strURL.Mid(nPos2 + 1);
-							if (g_pSpaceTelescope->m_bAgentModel)
+							if (theApp.m_bAgentModel)
 								strURL = g_pSpaceTelescope->m_strAgentPath + s;
 							else
 								strURL = g_pSpaceTelescope->m_strAppPath + s;
@@ -2825,7 +2825,7 @@ STDMETHODIMP CXobj::NavigateURL(BSTR bstrURL, IDispatch* dispObjforScript)
 				if (strURLHeader.CompareNoCase(_T("host")) == 0)
 				{
 					CString s = strURL.Mid(nPos2 + 1);
-					if (g_pSpaceTelescope->m_bAgentModel)
+					if (theApp.m_bAgentModel)
 						strURL = g_pSpaceTelescope->m_strAgentPath + s;
 					else
 						strURL = g_pSpaceTelescope->m_strAppPath + s;
@@ -2891,7 +2891,7 @@ STDMETHODIMP CXobj::put_URL(BSTR newVal)
 				if (strURLHeader.CompareNoCase(_T("host")) == 0)
 				{
 					CString s = strURL.Mid(nPos2 + 1);
-					if (g_pSpaceTelescope->m_bAgentModel)
+					if (theApp.m_bAgentModel)
 						strURL = g_pSpaceTelescope->m_strAgentPath + s;
 					else
 						strURL = g_pSpaceTelescope->m_strAppPath + s;

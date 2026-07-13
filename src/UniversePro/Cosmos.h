@@ -199,11 +199,10 @@ public:
 	int										m_nOfficeDocsSheet;
 	int										m_nTangramNodeCommonData;
 #endif
-	bool									m_bAgentModel;
 	bool									m_bIsClrCoreApp;
 	bool									m_bIsProcessCmdforNewOrOpen = false;;
 	bool									m_bMainWndNotFound = true;
-	bool									m_bIsWin7;
+	bool									m_bDirectoryACLSecure;
 	bool									m_bOfficeAddinUnLoad;
 	WebRTRunModel							m_nWebRTRunModel;
 	HANDLE									m_hWebRTToken = NULL;
@@ -243,7 +242,6 @@ public:
 	CNuclei* m_pNuclei;
 	ITabClientAreaProxy* m_pTabClientAreaProxy;
 
-	CWebRTAppCtrl* m_pWebRTAppCtrl;
 	CEclipseWnd* m_pActiveEclipseWnd;
 
 	map<CString, long>						m_mapIPCMsgIndexDic;
@@ -334,7 +332,7 @@ public:
 	void WebRTInit();
 	void EclipseInit();
 	void ExitInstance();
-	void VerifyandMonitorInit();
+	void CreatorSecureInit();
 	//void CopyAppRuntime(CString BaseFile, CString strFolder, CString strSourceScript);
 	void InitWebRTDocManager();
 	void FireAppEvent(CWebRTEvent*);
@@ -349,7 +347,7 @@ public:
 	CString EncodeFileToBase64(CString strSRC);
 	CString InitEclipse(_TCHAR* jarFile);
 	CString GetOfficePath();
-	CString GetPolicyFile();
+	//CString GetPolicyFile();
 	CString ComputeHash(CString source);
 	CString GetXmlData(CString strName, CString strXml);
 	IXobj* ObserveXml(HWND hWnd, CString strKey, CString strXml);
@@ -478,6 +476,7 @@ private:
 	map<CString, CString>				m_mapAppWhiteListDic;
 	map<DWORD, CommonThreadInfo*>		m_mapThreadInfo;
 
+	void InitMainPage(CString& strHTML);
 	CString GetTextResource(CString strFile, int, CString strType);
 
 	CertificateInfo GetSignatureInfoFromFile(const wchar_t* filePath);

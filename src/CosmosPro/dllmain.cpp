@@ -46,7 +46,8 @@ CSpaceTelescope::CSpaceTelescope()
 	CString strExeName = m_strAppPath.Mid(nPos + 1);
 	nPos = strExeName.ReverseFind('.');
 	strExeName = strExeName.Left(nPos);
-	CString strCfg = m_strAppPath + _T(".policy");
+	CString strCfg = m_strAppPath.MakeLower();
+	strCfg.Replace(_T(".exe"), _T(".aiagent.policy"));
 	nPos = m_strAppPath.ReverseFind('\\');
 	m_strAppPath = m_strAppPath.Left(nPos + 1);
 	HMODULE hModule = ::GetModuleHandle(L"universe.dll");

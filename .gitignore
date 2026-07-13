@@ -33,3 +33,8 @@
 /src/DotnetComponent/SunnyWPF/obj/Release
 /src/DotnetComponent/WinFormsApp1/obj/Release/net8.0-windows
 /src/DotnetComponent/WinFormsApp1/obj
+/src/DotnetComponent/SunnyCtrl/obj/Debug
+/src/DotnetComponent/SunnyCtrl2/obj/Debug
+/src/DotnetComponent/SunnyWPF/obj/Debug/SunnyWPF.csproj.AssemblyReference.cache
+/src/DotnetComponent/SunnyWPF/obj/Debug/SunnyWPF_MarkupCompile.cache
+/src/DotnetComponent/SunnyWPF/obj/Debug/SunnyWPF_MarkupCompile.lref

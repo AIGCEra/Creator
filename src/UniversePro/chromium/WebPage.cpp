@@ -252,7 +252,7 @@ namespace Browser {
 								if (strURLHeader.CompareNoCase(_T("host")) == 0)
 								{
 									CString s = strURL.Mid(nPos2 + 1);
-									if (g_pSpaceTelescope->m_bAgentModel)
+									if (theApp.m_bAgentModel)
 										strURL = g_pSpaceTelescope->m_strAgentPath + s;
 									else
 										strURL = g_pSpaceTelescope->m_strAppPath + s;
@@ -1037,7 +1037,7 @@ namespace Browser {
 								if (strURLHeader.CompareNoCase(_T("host")) == 0)
 								{
 									CString s = strURL.Mid(nPos2 + 1);
-									if (g_pSpaceTelescope->m_bAgentModel)
+									if (theApp.m_bAgentModel)
 										strURL = g_pSpaceTelescope->m_strAgentPath + s;
 									else
 										strURL = g_pSpaceTelescope->m_strAppPath + s;
@@ -1321,7 +1321,7 @@ namespace Browser {
 								if (strURLHeader.CompareNoCase(_T("host")) == 0)
 								{
 									CString s = strURL.Mid(nPos2 + 1);
-									if (g_pSpaceTelescope->m_bAgentModel)
+									if (theApp.m_bAgentModel)
 										strURL = g_pSpaceTelescope->m_strAgentPath + s;
 									else
 										strURL = g_pSpaceTelescope->m_strAppPath + s;
@@ -1567,21 +1567,7 @@ namespace Browser {
 			{
 				g_pSpaceTelescope->m_strAppXml = strHTML;
 			}
-			CTangramXmlParse m_Parse;
-			if (m_Parse.LoadXml(strHTML))
-			{
-				m_strPageName = m_Parse.attr(_T("pagename"), _T("default"));
-				if (g_pSpaceTelescope->m_bIsClrCoreApp == false)
-					g_pSpaceTelescope->m_bIsClrCoreApp = m_Parse.attrBool(_T("dotnetapp"), false);
-				CString CorePath = g_pSpaceTelescope->m_strProgramFilePath;
-				CorePath += _T("\\dotnet\\shared\\Microsoft.NETCore.App\\");
-				if (g_pSpaceTelescope->m_bIsClrCoreApp && ::PathIsDirectory(CorePath)) {
-					g_pSpaceTelescope->m_strMiniClrCoreVer = m_Parse.attr(_T("minidotnetver"), _T("6.0.0.0"));
-				}
-				else {
-					g_pSpaceTelescope->m_bIsClrCoreApp = false;
-				}
-			}
+			g_pSpaceTelescope->InitMainPage(strHTML);
 		}
 		else if (strRuleName.CompareNoCase(_T("mainWindow")) == 0)
 		{
@@ -1727,7 +1713,7 @@ namespace Browser {
 								if (strURLHeader.CompareNoCase(_T("host")) == 0)
 								{
 									CString s = strURL.Mid(nPos2 + 1);
-									if (g_pSpaceTelescope->m_bAgentModel)
+									if (theApp.m_bAgentModel)
 										strURL = g_pSpaceTelescope->m_strAgentPath + s;
 									else
 										strURL = g_pSpaceTelescope->m_strAppPath + s;
@@ -2340,7 +2326,7 @@ namespace Browser {
 						if (strURLHeader.CompareNoCase(_T("host")) == 0)
 						{
 							CString s = strUrl.Mid(nPos2 + 1);
-							if (g_pSpaceTelescope->m_bAgentModel)
+							if (theApp.m_bAgentModel)
 								strUrl = g_pSpaceTelescope->m_strAgentPath + s;
 							else
 								strUrl = g_pSpaceTelescope->m_strAppPath + s;
@@ -2499,7 +2485,7 @@ namespace Browser {
 						if (strURLHeader.CompareNoCase(_T("host")) == 0)
 						{
 							CString s = strUrl.Mid(nPos2 + 1);
-							if (g_pSpaceTelescope->m_bAgentModel)
+							if (theApp.m_bAgentModel)
 								strUrl = g_pSpaceTelescope->m_strAgentPath + s;
 							else
 								strUrl = g_pSpaceTelescope->m_strAppPath + s;

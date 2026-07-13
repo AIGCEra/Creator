@@ -108,17 +108,45 @@ public:
 	bool				m_bHostCLR;
 	bool				m_bAsynLodeMode;
 	bool				m_bAppStarting = false;
-	DWORD				m_dwMainThreadID;
-	HHOOK				m_hMainGetMessageHook;
-	HANDLE				m_hInitComplete = nullptr;    // 初始化完成事件
-	HANDLE				m_hVerifyandMonitorInitEvent = nullptr;    // 初始化安全检测事件
 
+	DWORD				m_dwMainThreadID;
+
+	HHOOK				m_hMainHook;
+	HANDLE				m_hInitComplete = nullptr;    // 初始化完成事件
+	HANDLE				m_hCreatorInitEvent = nullptr;    // 初始化安全检测事件
+
+	CString				m_strInitInfo;
 	CString				m_strCosmosVer;
+
 	CString				GetFileVer();
 
 	int					Run();
 	void				SetHook(DWORD ThreadID);
 	wstring				json_to_xml(wstring& jsonStr);
+
+	CString GetArgFromCmdLine(CString strArgName)
+	{
+		LPWSTR cmdLine = GetCommandLineW();
+		int argc;
+		LPWSTR* argv = CommandLineToArgvW(cmdLine, &argc);
+		if (argv == nullptr) {
+			return L"";
+		}
+
+		std::wstring startInfoPath;
+		for (int i = 0; i < argc; ++i) {
+			// 查找 /StartInfo 参数（不区分大小写）
+			if (_wcsicmp(argv[i], strArgName) == 0) {
+				// 确保下一个参数存在
+				if (i + 1 < argc) {
+					startInfoPath = argv[i + 1];
+				}
+				break;
+			}
+		}
+		LocalFree(argv);
+		return startInfoPath.c_str();
+	}
 
 	static LRESULT CALLBACK CBTProc(int nCode, WPARAM wParam, LPARAM lParam);
 	static LRESULT CALLBACK ForegroundIdleProc(int nCode, WPARAM wParam, LPARAM lParam);
@@ -126,25 +154,35 @@ public:
 	static LRESULT CALLBACK CosmosExtendedWndProc(_In_ HWND hWnd, UINT msg, _In_ WPARAM wParam, _In_ LPARAM lParam);
 	static LRESULT CALLBACK GetMessageProc(int nCode, WPARAM wParam, LPARAM lParam);
 
-	static BOOL CALLBACK EnumProcessWindowsProc(HWND hWnd, LPARAM lParam)
-	{
-		if (!::IsWindowVisible(hWnd))return TRUE;
-		ProcessData* pProcessData = (ProcessData*)lParam;
-		DWORD dwProcessID = 0, dwThreadID = 0;
-		dwThreadID = ::GetWindowThreadProcessId(hWnd, &dwProcessID);
-		if (dwProcessID == pProcessData->dwProcessID && dwThreadID == pProcessData->dwThreadID) {
-			pProcessData->m_hWnd = hWnd;
-			return FALSE;
-		}
-		return TRUE;
-	}
-
 	DECLARE_LIBID(LIBID_Universe)
 
 private:
 	int ExitInstance();
 	BOOL InitInstance();
 	BOOL InitInstanceSync();
+	CString GetArgFromCmdLine(CString strArgName)
+	{
+		LPWSTR cmdLine = GetCommandLineW();
+		int argc;
+		LPWSTR* argv = CommandLineToArgvW(cmdLine, &argc);
+		if (argv == nullptr) {
+			return L"";
+		}
+
+		std::wstring startInfoPath;
+		for (int i = 0; i < argc; ++i) {
+			// 查找 /StartInfo 参数（不区分大小写）
+			if (_wcsicmp(argv[i], strArgName) == 0) {
+				// 确保下一个参数存在
+				if (i + 1 < argc) {
+					startInfoPath = argv[i + 1];
+				}
+				break;
+			}
+		}
+		LocalFree(argv);
+		return startInfoPath.c_str();
+	}
 };
 
 extern CUniverse theApp;

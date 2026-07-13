@@ -489,6 +489,172 @@ namespace CreatorMonitor
 	};
 
 	// 设置目录 ACL：只允许 SYSTEM 和 Administrators 完全控制，普通用户只读
+	//inline HRESULT SetSecureDirectoryAcl(const CString& strDirectory)
+	//{
+	//	ATLASSERT(!strDirectory.IsEmpty());
+
+	//	// 1. 获取 SYSTEM 和 Administrators 的 SID
+	//	CSidPtr systemSid, adminSid;
+	//	SID_IDENTIFIER_AUTHORITY ntAuth = SECURITY_NT_AUTHORITY;
+
+	//	if (!AllocateAndInitializeSid(&ntAuth, 1, SECURITY_LOCAL_SYSTEM_RID,
+	//		0, 0, 0, 0, 0, 0, 0, &systemSid))
+	//		return HRESULT_FROM_WIN32(GetLastError());
+
+	//	if (!AllocateAndInitializeSid(&ntAuth, 2, SECURITY_BUILTIN_DOMAIN_RID,
+	//		DOMAIN_ALIAS_RID_ADMINS,
+	//		0, 0, 0, 0, 0, 0, &adminSid))
+	//		return HRESULT_FROM_WIN32(GetLastError());
+
+	//	// 2. 获取“已认证用户”的 SID (替代原本的 Everyone)
+	//	// S-1-5-11 代表 Authenticated Users，正常登录的用户都具备这个身份
+	//	CSidLocalPtr authUserSid;
+	//	if (!ConvertStringSidToSid(L"S-1-5-11", &authUserSid))
+	//		return HRESULT_FROM_WIN32(GetLastError());
+
+	//	// 3. 定义 ACE (Access Control Entry)
+	//	EXPLICIT_ACCESS ea[4] = {}; // 增加为 4 条规则
+
+	//	// 规则 0: SYSTEM 完全控制
+	//	ea[0].grfAccessPermissions = GENERIC_ALL;
+	//	ea[0].grfAccessMode = SET_ACCESS;
+	//	ea[0].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+	//	ea[0].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+	//	ea[0].Trustee.ptstrName = (LPTSTR)systemSid.Get();
+
+	//	// 规则 1: Administrators 完全控制
+	//	ea[1].grfAccessPermissions = GENERIC_ALL;
+	//	ea[1].grfAccessMode = SET_ACCESS;
+	//	ea[1].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+	//	ea[1].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+	//	ea[1].Trustee.ptstrName = (LPTSTR)adminSid.Get();
+
+	//	// 规则 2: 已认证用户允许“读取”和“执行”（保证普通用户能正常启动和使用）
+	//	ea[2].grfAccessPermissions = GENERIC_READ | GENERIC_EXECUTE;
+	//	ea[2].grfAccessMode = SET_ACCESS;
+	//	ea[2].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+	//	ea[2].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+	//	ea[2].Trustee.ptstrName = (LPTSTR)authUserSid.Get();
+
+	//	// 规则 3: 已认证用户显式“拒绝写入”（防止被恶意替换或篡改）
+	//	ea[3].grfAccessPermissions = GENERIC_WRITE;
+	//	ea[3].grfAccessMode = DENY_ACCESS;
+	//	ea[3].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+	//	ea[3].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+	//	ea[3].Trustee.ptstrName = (LPTSTR)authUserSid.Get();
+
+	//	// 4. 创建 DACL
+	//	PACL pNewDacl = nullptr;
+	//	DWORD dwErr = SetEntriesInAcl(4, ea, nullptr, &pNewDacl); // 传入 4 条规则
+	//	if (dwErr != ERROR_SUCCESS)
+	//		return HRESULT_FROM_WIN32(dwErr);
+
+	//	// 5. 应用到目标目录
+	//	dwErr = SetNamedSecurityInfo(
+	//		const_cast<LPWSTR>(static_cast<LPCWSTR>(strDirectory)),
+	//		SE_FILE_OBJECT,
+	//		DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+	//		nullptr, nullptr, pNewDacl, nullptr);
+
+	//	// 释放 ACL 内存 (SetEntriesInAcl 成功分配后必须释放)
+	//	if (pNewDacl) LocalFree(pNewDacl);
+
+	//	if (dwErr != ERROR_SUCCESS)
+	//		return HRESULT_FROM_WIN32(dwErr);
+
+	//	ATLTRACE(L"[CreatorMonitor] 目录 ACL 加固完成: %s\n", strDirectory.GetString());
+	//	return S_OK;
+	//}
+
+	inline HRESULT SetSecureDirectoryAcl2(const CString& strDirectory)
+	{
+		ATLASSERT(!strDirectory.IsEmpty());
+
+		// 1. 获取 SYSTEM 和 Administrators 的 SID
+		CSidPtr systemSid, adminSid;
+		SID_IDENTIFIER_AUTHORITY ntAuth = SECURITY_NT_AUTHORITY;
+
+		if (!AllocateAndInitializeSid(&ntAuth, 1, SECURITY_LOCAL_SYSTEM_RID,
+			0, 0, 0, 0, 0, 0, 0, &systemSid))
+			return HRESULT_FROM_WIN32(GetLastError());
+
+		if (!AllocateAndInitializeSid(&ntAuth, 2, SECURITY_BUILTIN_DOMAIN_RID,
+			DOMAIN_ALIAS_RID_ADMINS,
+			0, 0, 0, 0, 0, 0, &adminSid))
+			return HRESULT_FROM_WIN32(GetLastError());
+
+		//2. 获取“已认证用户”的 SID (S-1-5-11)，以取代 Everyone
+		//普通登录用户都属于这个组，确保了正常使用，且不包含匿名/访客
+		CSidLocalPtr authUserSid;
+		if (!ConvertStringSidToSid(L"S-1-5-11", &authUserSid))
+			return HRESULT_FROM_WIN32(GetLastError());
+
+		// 3. 定义 ACE (访问控制条目)
+		EXPLICIT_ACCESS ea[4] = {};
+
+		// 规则 0: SYSTEM 完全控制
+		ea[0].grfAccessPermissions = GENERIC_ALL;
+		ea[0].grfAccessMode = SET_ACCESS;
+		ea[0].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+		ea[0].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+		ea[0].Trustee.ptstrName = (LPTSTR)systemSid.Get();
+
+		// 规则 1: Administrators 完全控制
+		ea[1].grfAccessPermissions = GENERIC_ALL;
+		ea[1].grfAccessMode = SET_ACCESS;
+		ea[1].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+		ea[1].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+		ea[1].Trustee.ptstrName = (LPTSTR)adminSid.Get();
+
+		//规则 2: 已认证用户“允许进入和读取”（解决此前进不去文件夹的问题）
+		//注意：这里弃用了 GENERIC_READ，显式列出了目录权限，并包含了关键的 SYNCHRONIZE 位
+		ea[2].grfAccessPermissions = FILE_LIST_DIRECTORY |  // 允许列出目录内容
+			FILE_TRAVERSE |  // 允许进入目录（穿越）
+			FILE_READ_ATTRIBUTES |  // 允许读取目录属性
+			FILE_READ_EA |  // 允许读取扩展属性
+			SYNCHRONIZE |  // 同步权限（解决无法进入句柄的关键）
+			READ_CONTROL;          // 允许读取安全描述符
+		ea[2].grfAccessMode = SET_ACCESS;
+		ea[2].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+		ea[2].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+		ea[2].Trustee.ptstrName = (LPTSTR)authUserSid.Get();
+
+		//规则 3: 已认证用户显式“拒绝写入”（防篡改底线）
+		//同样弃用了 GENERIC_WRITE，只拒绝针对文件夹写操作的特定权限
+		ea[3].grfAccessPermissions = FILE_ADD_FILE |          // 禁止添加文件
+			FILE_ADD_SUBDIRECTORY |  // 禁止创建子目录
+			FILE_WRITE_DATA |        // 禁止写入数据
+			FILE_WRITE_ATTRIBUTES |  // 禁止修改目录属性
+			FILE_WRITE_EA;           // 禁止修改扩展属性
+		ea[3].grfAccessMode = DENY_ACCESS;
+		ea[3].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+		ea[3].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+		ea[3].Trustee.ptstrName = (LPTSTR)authUserSid.Get();
+
+		//4. 创建 DACL (规则条数改为 4)
+		PACL pNewDacl = nullptr;
+		DWORD dwErr = SetEntriesInAcl(4, ea, nullptr, &pNewDacl);
+		if (dwErr != ERROR_SUCCESS)
+			return HRESULT_FROM_WIN32(dwErr);
+
+		//5. 应用到目标目录
+		//PROTECTED_DACL_SECURITY_INFORMATION 防止父目录继承错误的宽松权限
+		dwErr = SetNamedSecurityInfo(
+			const_cast<LPWSTR>(static_cast<LPCWSTR>(strDirectory)),
+			SE_FILE_OBJECT,
+			DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+			nullptr, nullptr, pNewDacl, nullptr);
+
+		//释放 SetEntriesInAcl 分配的 DACL 内存
+		if (pNewDacl) LocalFree(pNewDacl);
+
+		if (dwErr != ERROR_SUCCESS)
+			return HRESULT_FROM_WIN32(dwErr);
+
+		ATLTRACE(L"[CreatorMonitor] 目录 ACL 加固完成: %s\n", strDirectory.GetString());
+		return S_OK;
+	}
+
 	inline HRESULT SetSecureDirectoryAcl(const CString& strDirectory)
 	{
 		ATLASSERT(!strDirectory.IsEmpty());
@@ -1894,54 +2060,7 @@ std::wstring TrimQuotes(const std::wstring& s) {
 
 
 namespace Creator {
-
 	namespace fs = std::filesystem;
-	DWORD GetMainThreadIdForCurrentProcess() {
-		DWORD currentProcessId = GetCurrentProcessId();
-		DWORD mainThreadId = 0;
-
-		// 拍摄系统线程快照
-		HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-		if (hSnapshot == INVALID_HANDLE_VALUE)
-			return 0;
-
-		// 收集本进程所有线程的 ID 和创建时间
-		std::vector<std::pair<DWORD, FILETIME>> threads;
-
-		THREADENTRY32 te = { sizeof(te) };
-		if (Thread32First(hSnapshot, &te)) {
-			do
-			{
-				if (te.th32OwnerProcessID == currentProcessId) {
-					// 打开本进程内的线程 —— 一定成功，无需提权
-					HANDLE hThread = OpenThread(THREAD_QUERY_INFORMATION,
-						FALSE,
-						te.th32ThreadID);
-					if (hThread) {
-						FILETIME createTime, exitTime, kernelTime, userTime;
-						if (GetThreadTimes(hThread, &createTime, &exitTime,
-							&kernelTime, &userTime)) {
-							threads.push_back({ te.th32ThreadID, createTime });
-						}
-						CloseHandle(hThread);
-					}
-				}
-			} while (Thread32Next(hSnapshot, &te));
-		}
-
-		CloseHandle(hSnapshot);
-
-		if (threads.empty())
-			return 0;
-
-		// 创建时间最早的线程就是主线程
-		auto mainIt = std::min_element(threads.begin(), threads.end(),
-			[](const auto& a, const auto& b) {
-				return CompareFileTime(&a.second, &b.second) < 0;
-			});
-
-		return mainIt->first;
-	}
 
 	HWND FindMainWindowOfCurrentProcess() {
 		struct EnumData {
@@ -2029,30 +2148,6 @@ namespace Creator {
 		}
 
 		return cmd.str();
-	}
-
-	inline CString GetArgFromCmdLine(CString strArgName)
-	{
-		LPWSTR cmdLine = GetCommandLineW();
-		int argc;
-		LPWSTR* argv = CommandLineToArgvW(cmdLine, &argc);
-		if (argv == nullptr) {
-			return L"";
-		}
-
-		std::wstring startInfoPath;
-		for (int i = 0; i < argc; ++i) {
-			// 查找 /StartInfo 参数（不区分大小写）
-			if (_wcsicmp(argv[i], strArgName) == 0) {
-				// 确保下一个参数存在
-				if (i + 1 < argc) {
-					startInfoPath = argv[i + 1];
-				}
-				break;
-			}
-		}
-		LocalFree(argv);
-		return startInfoPath.c_str();
 	}
 
 	// ---------- CString → UTF-8 ----------
@@ -2910,7 +3005,7 @@ CSpaceTelescope::CSpaceTelescope()
 	m_pClrHost = nullptr;
 	m_pClrCoreHost = nullptr;
 	m_nJVMVersion = JNI_VERSION_10;
-	m_bIsWin7 = false;
+	m_bDirectoryACLSecure = false;
 	m_bAgentModel = false;
 	m_bEnableAllDllInject = false;
 	m_bIsClrCoreApp = false;
@@ -2971,7 +3066,6 @@ CSpaceTelescope::CSpaceTelescope()
 	m_pActiveXobj = nullptr;
 	m_pNucleus = nullptr;
 	m_pRootNodes = nullptr;
-	m_pWebRTAppCtrl = nullptr;
 	m_pUniverseAppProxy = nullptr;
 	m_pWebRTAppProxy = nullptr;
 	m_pActiveAppProxy = nullptr;
@@ -3033,6 +3127,21 @@ CSpaceTelescope::CSpaceTelescope()
 
 	m_dwThreadID = ::GetCurrentThreadId();
 	//m_bCommercialEdition = false;
+	CString strArg = theApp.m_strInitInfo;
+	if (!strArg.IsEmpty()) {
+		int nPos = strArg.Find(_T(":"));
+		if (nPos != -1) {
+			m_bAgentModel = true;
+			strArg = strArg.Mid(nPos + 1);
+			if (::PathFileExists(strArg)) {
+				m_strConfigFile = strArg;
+				nPos = m_strConfigFile.ReverseFind('\\');
+				m_strAgentPath = m_strConfigFile.Left(nPos + 1);
+				m_strAgentExeFile = m_strConfigFile.Mid(nPos + 1);
+				m_strAgentExeFile.Replace(_T(".aiagent.policy"), _T(""));
+			}
+		}
+	}
 }
 
 std::wstring HashToHexWString(const BYTE* hashBuffer, size_t length) {
@@ -3226,154 +3335,186 @@ void CSpaceTelescope::Init()
 	static bool bInit = false;
 	if (bInit)
 		return;
-	g_hEvent = CreateEvent(
-		NULL,           // 安全属性（默认）
-		TRUE,           // TRUE = 手动重置事件；FALSE = 自动重置
-		FALSE,          // 初始状态为无信号（未触发）
-		NULL            // 事件名称（可为 NULL 表示匿名）
-	);
+	if (m_bAgentModel) {
+		g_hEvent = CreateEvent(
+			NULL,           // 安全属性（默认）
+			TRUE,           // TRUE = 手动重置事件；FALSE = 自动重置
+			FALSE,          // 初始状态为无信号（未触发）
+			NULL            // 事件名称（可为 NULL 表示匿名）
+		);
 
-	if (g_hEvent == NULL)
-	{
-		return;
-	}
-	g_hEvent2 = CreateEvent(
-		NULL,           // 安全属性（默认）
-		TRUE,           // TRUE = 手动重置事件；FALSE = 自动重置
-		FALSE,          // 初始状态为无信号（未触发）
-		NULL            // 事件名称（可为 NULL 表示匿名）
-	);
-
-	if (g_hEvent2 == NULL)
-	{
-		return;
-	}
-
-	bInit = true;
-	SYSTEM_INFO si;
-	GetNativeSystemInfo(&si);
-
-	if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||
-		si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_IA64 ||
-		si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64)
-		m_b64bitSystem = true;
-
-	if (m_bOfficeApp == false && m_nAppID != 9)
-	{
-		if (::PathIsDirectory(m_strAppDataPath) == false)
+		if (g_hEvent == NULL)
 		{
-			::SHCreateDirectory(nullptr, m_strAppDataPath);
+			return;
+		}
+		g_hEvent2 = CreateEvent(
+			NULL,           // 安全属性（默认）
+			TRUE,           // TRUE = 手动重置事件；FALSE = 自动重置
+			FALSE,          // 初始状态为无信号（未触发）
+			NULL            // 事件名称（可为 NULL 表示匿名）
+		);
+
+		if (g_hEvent2 == NULL)
+		{
+			return;
+		}
+
+		bInit = true;
+		SYSTEM_INFO si;
+		GetNativeSystemInfo(&si);
+
+		if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||
+			si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_IA64 ||
+			si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64)
+			m_b64bitSystem = true;
+
+		if (m_bOfficeApp == false && m_nAppID != 9)
+		{
+			if (::PathIsDirectory(m_strAppDataPath) == false)
+			{
+				::SHCreateDirectory(nullptr, m_strAppDataPath);
+			}
+		}
+		m_mapValInfo[_T("apppath")] = CComVariant(m_strAppPath);
+		m_mapValInfo[_T("appagentpath")] = CComVariant(m_strAgentPath);
+		m_mapValInfo[_T("appdatapath")] = CComVariant(m_strAppDataPath);
+		m_mapValInfo[_T("appdatafile")] = CComVariant(m_strConfigDataFile);
+		m_mapValInfo[_T("appname")] = CComVariant(m_strExeName);
+		m_mapValInfo[_T("appkey")] = CComVariant(m_strAppKey);
+		CString strWebPage = m_strAgentPath + m_strExeName + _T(".app.html");
+		if (m_nAppID != 9)
+		{
+			WebRTInit();
+			m_hCosmosWnd = ::CreateWindowEx(WS_EX_NOACTIVATE, _T("Tangram Message Window Class"), _T(""), WS_CHILD, 0, 0, 0, 0, HWND_MESSAGE, (HMENU)19921963, theApp.m_hInstance, nullptr);
+		}
+		CString _strPath = _T("");
+		_strPath = m_strAgentPath + m_strExeName + _T("InitData\\");
+		if (::PathIsDirectory(_strPath))
+		{
+			CTangramXmlParse m_Parse;
+			CTangramXmlParse* pZipXobj = nullptr;
+			BOOL b = m_Parse.LoadFile(m_strConfigDataFile);
+			if (b)
+			{
+				pZipXobj = m_Parse.GetChild(_T("tangramappdata"));
+				if (pZipXobj == nullptr)
+				{
+					CopyFolder(_strPath, m_strAppDataPath);
+					pZipXobj = m_Parse.AddNode(_T("tangramappdata"));
+					m_Parse.SaveFile(m_strConfigDataFile);
+				}
+			}
 		}
 	}
-
-	m_bIsWin7 = !IsWindows10OrGreater();
 
 	SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0, m_szBuffer);
 	m_strProgramFilePath = m_szBuffer;
 
-	m_mapValInfo[_T("apppath")] = CComVariant(m_strAppPath);
-	m_mapValInfo[_T("appagentpath")] = CComVariant(m_strAgentPath);
-	m_mapValInfo[_T("appdatapath")] = CComVariant(m_strAppDataPath);
-	m_mapValInfo[_T("appdatafile")] = CComVariant(m_strConfigDataFile);
-	m_mapValInfo[_T("appname")] = CComVariant(m_strExeName);
-	m_mapValInfo[_T("appkey")] = CComVariant(m_strAppKey);
-
-	CString strWebPage = m_strAgentPath + m_strExeName + _T(".app.html");
-	if (m_nAppID != 9)
-	{
-		WebRTInit();
-		m_hCosmosWnd = ::CreateWindowEx(WS_EX_NOACTIVATE, _T("Tangram Message Window Class"), _T(""), WS_CHILD, 0, 0, 0, 0, HWND_MESSAGE, (HMENU)19921963, theApp.m_hInstance, nullptr);
-	}
-
-
-	CString _strPath = _T("");
-	_strPath = m_strAgentPath + m_strExeName + _T("InitData\\");
-	if (::PathIsDirectory(_strPath))
-	{
-		CTangramXmlParse m_Parse;
-		CTangramXmlParse* pZipXobj = nullptr;
-		BOOL b = m_Parse.LoadFile(m_strConfigDataFile);
-		if (b)
-		{
-			pZipXobj = m_Parse.GetChild(_T("tangramappdata"));
-			if (pZipXobj == nullptr)
-			{
-				CopyFolder(_strPath, m_strAppDataPath);
-				pZipXobj = m_Parse.AddNode(_T("tangramappdata"));
-				m_Parse.SaveFile(m_strConfigDataFile);
-			}
-		}
-		//});
-	}
-
+	int nChildID = 0;
 	if (m_nAppID != 9 && ::PathFileExists(m_strConfigFile) && m_bOfficeApp == false)
 	{
 		CTangramXmlParse m_Parse;
 		if (m_Parse.LoadFile(m_strConfigFile))
 		{
-			if (m_bIsClrCoreApp == false)
-				m_bIsClrCoreApp = m_Parse.attrBool(_T("dotnetapp"), false);
-			CString CorePath = m_strProgramFilePath;
-			CorePath += _T("\\dotnet\\shared\\Microsoft.NETCore.App\\");
-			if (m_bIsClrCoreApp && ::PathIsDirectory(CorePath)) {
-				m_strMiniClrCoreVer = m_Parse.attr(_T("minidotnetver"), _T("6.0.0.0"));
-			}
-			else {
-				m_bIsClrCoreApp = false;
-			}
+			nChildID = m_Parse.attrInt(_T("mainclientid"));
+			if (m_bAgentModel) {
+				if (m_bIsClrCoreApp == false)
+					m_bIsClrCoreApp = m_Parse.attrBool(_T("dotnetapp"), false);
+				CString CorePath = m_strProgramFilePath;
+				CorePath += _T("\\dotnet\\shared\\Microsoft.NETCore.App\\");
+				if (m_bIsClrCoreApp && ::PathIsDirectory(CorePath)) {
+					m_strMiniClrCoreVer = m_Parse.attr(_T("minidotnetver"), _T("6.0.0.0"));
+				}
+				else {
+					m_bIsClrCoreApp = false;
+				}
 
-			m_strWebRTVer = m_Parse.attr(_T("webrtver"), _T(""));
-			CString _strUrl = m_Parse.attr(_T("url"), _T(""));
-			if (_strUrl != _T(""))
-			{
-				m_strStartupURL = _strUrl;
-			}
-			CTangramXmlParse* _pXmlParse = m_Parse.GetChild(_T("defaultworkbench"));
-			if (_pXmlParse)
-			{
-				m_strDefaultWorkBenchXml = _pXmlParse->xml();
-			}
-			if (::PathFileExists(m_strConfigDataFile) == FALSE)
-			{
-				_pXmlParse = m_Parse.GetChild(_T("hubblepage"));
-				CString strXml = _T("");
+				m_strWebRTVer = m_Parse.attr(_T("webrtver"), _T(""));
+				CString _strUrl = m_Parse.attr(_T("url"), _T(""));
+				if (_strUrl != _T(""))
+				{
+					m_strStartupURL = _strUrl;
+				}
+				CTangramXmlParse* _pXmlParse = m_Parse.GetChild(_T("defaultworkbench"));
 				if (_pXmlParse)
 				{
-					strXml.Format(_T("<%s>%s</%s>"), m_strExeName, _pXmlParse->xml(), m_strExeName);
-					CTangramXmlParse xmlParse;
-					if (xmlParse.LoadXml(strXml))
-					{
-						xmlParse.SaveFile(m_strConfigDataFile);
-					}
+					m_strDefaultWorkBenchXml = _pXmlParse->xml();
 				}
-				else
+				if (::PathFileExists(m_strConfigDataFile) == FALSE)
 				{
-					if (m_bEclipse)
+					_pXmlParse = m_Parse.GetChild(_T("hubblepage"));
+					CString strXml = _T("");
+					if (_pXmlParse)
 					{
-						strXml.Format(_T("<%s><openedworkbench></openedworkbench></%s>"), m_strExeName, m_strExeName);
+						strXml.Format(_T("<%s>%s</%s>"), m_strExeName, _pXmlParse->xml(), m_strExeName);
 						CTangramXmlParse xmlParse;
 						if (xmlParse.LoadXml(strXml))
 						{
 							xmlParse.SaveFile(m_strConfigDataFile);
 						}
 					}
-				}
-			}
-			else
-			{
-				CTangramXmlParse xmlParse;
-				if (xmlParse.LoadFile(m_strConfigDataFile))
-				{
-					if (m_bEclipse) {
-						CTangramXmlParse* pParse = xmlParse.GetChild(_T("openedworkbench"));
-						if (pParse)
+					else
+					{
+						if (m_bEclipse)
 						{
-							m_strWorkBenchStrs = pParse->text();
-							pParse->put_text(_T(""));
+							strXml.Format(_T("<%s><openedworkbench></openedworkbench></%s>"), m_strExeName, m_strExeName);
+							CTangramXmlParse xmlParse;
+							if (xmlParse.LoadXml(strXml))
+							{
+								xmlParse.SaveFile(m_strConfigDataFile);
+							}
 						}
 					}
-					xmlParse.SaveFile(m_strConfigDataFile);
 				}
+				else
+				{
+					CTangramXmlParse xmlParse;
+					if (xmlParse.LoadFile(m_strConfigDataFile))
+					{
+						if (m_bEclipse) {
+							CTangramXmlParse* pParse = xmlParse.GetChild(_T("openedworkbench"));
+							if (pParse)
+							{
+								m_strWorkBenchStrs = pParse->text();
+								pParse->put_text(_T(""));
+							}
+						}
+						xmlParse.SaveFile(m_strConfigDataFile);
+					}
+				}
+			}
+		}
+	}
+
+	if (theApp.m_bAsynLodeMode) {
+		bool bCLR = (::GetModuleHandle(_T("MSCOREE.dll")) != NULL) || (::GetModuleHandle(_T("hostfxr.dll")) != NULL);
+		bool bMFC = (::GetModuleHandle(_T("mfc140u.dll")) != NULL) || (::GetModuleHandle(_T("mfc140ud.dll")) != NULL);
+		if (bMFC || !bCLR) {
+			GetMainWnd(nChildID, _T("MFCAppProxy.dll"));
+		}
+
+		typedef int(__stdcall* _InitApp)(bool bSupportCrashReporting);
+		_InitApp FuncInitApp;
+		if (m_hWebRTProxyModel == nullptr)
+		{
+			CString strAIGCAgentPath = m_strProgramFilePath;
+			strAIGCAgentPath += _T("\\Tangram\\Creator\\AIAgent.dll");
+			if (::PathFileExists(strAIGCAgentPath)) {
+				m_hWebRTProxyModel = ::LoadLibrary(strAIGCAgentPath);
+			}
+		}
+		if (m_hWebRTProxyModel) {
+			FuncInitApp = (_InitApp)GetProcAddress(m_hWebRTProxyModel, "InitApp");
+			if (FuncInitApp != NULL) {
+				if (m_pUniverseAppProxy) {
+					HWND hWnd = m_pUniverseAppProxy->QueryWndInfo(MainWnd, NULL);
+					if (::IsWindow(hWnd))
+					{
+						m_hMainWnd = hWnd;
+					}
+				}
+				FuncInitApp(false);
+				::PostQuitMessage(0);
 			}
 		}
 	}
@@ -3932,28 +4073,45 @@ void CSpaceTelescope::OnMonitorNotify(CString strInfo, int nAction) {
 	g_strlastInfo = strInfo;
 	int nRet = -1;
 	CString str = _T("");
+	int nPos = strInfo.ReverseFind('\\');
+	CString strPath = strInfo.Left(nPos + 1);
+	bool bActionAtAgent = false;
+	if (strPath.CompareNoCase(m_strAgentPath) >= 0)
+		bActionAtAgent = true;
 	switch (nAction) {
-	case FILE_ACTION_ADDED: {
-		int nPos = strInfo.ReverseFind('\\');
-		CString strPath = strInfo.Left(nPos + 1);
+	case FILE_ACTION_ADDED:
+	{
 		auto it = m_mapAppWhiteListDic.find(strPath);
 		if (it != m_mapAppWhiteListDic.end())
 		{
 			m_bEnableAllDllInject = true;
 			break;
 		}
-		str.Format(_T("The File: \"%s\" was copyed to application folder"), strInfo);
+		if (bActionAtAgent)
+			str.Format(_T("The File: \"%s\" was copyed to AgentApp Folder"), strInfo);
+		else
+			str.Format(_T("The File: \"%s\" was copyed to Application Folder"), strInfo);
 	}
-						  break;
+	break;
 	case FILE_ACTION_REMOVED:
-		str.Format(_T("The File: \"%s\" was deleted in application folder"), strInfo);
+		if (bActionAtAgent)
+			str.Format(_T("The File: \"%s\" was deleted in AgentApp Folder"), strInfo);
+		else
+			str.Format(_T("The File: \"%s\" was deleted in Application Folder"), strInfo);
 		break;
 	case FILE_ACTION_MODIFIED:
-		str.Format(_T("The File: \"%s\" was modified in application folder"), strInfo);
+		if (bActionAtAgent)
+			str.Format(_T("The File: \"%s\" was modified in AgentApp Folder"), strInfo);
+		else
+			str.Format(_T("The File: \"%s\" was modified in Application Folder"), strInfo);
 		break;
 	case FILE_ACTION_RENAMED_NEW_NAME:
 	case FILE_ACTION_RENAMED_OLD_NAME:
-		str.Format(_T("The File: \"%s\" was renamed in application folder"), strInfo);
+		if (bActionAtAgent)
+			str.Format(_T("The File: \"%s\" was renamed in AgentApp Folder"), strInfo);
+		else
+			str.Format(_T("The File: \"%s\" was renamed in Application Folder"), strInfo);
+		break;
 		break;
 	default:
 		str = _T("");
@@ -3974,7 +4132,10 @@ void CSpaceTelescope::OnMonitorNotify(CString strInfo, int nAction) {
 		// 也可以什么都不设：tdc.dwFlags = 0;
 
 		tdc.pszWindowTitle = L"Current Application Whill Be Closed";
-		tdc.pszMainInstruction = L"Find UnTrusted File Action in Main Application:\r\n";
+		if (bActionAtAgent)
+			tdc.pszMainInstruction = L"Find UnTrusted File Action in Agent Application:\r\n";
+		else
+			tdc.pszMainInstruction = L"Find UnTrusted File Action in Main Application:\r\n";
 		tdc.pszContent = str;
 
 		// **** 在这里设置你想要的宽度（单位：像素） ****
@@ -4015,24 +4176,16 @@ void CSpaceTelescope::OnMonitorNotify(CString strInfo, int nAction) {
 				break;
 			}
 		}
-		//nRet = ::MessageBox(g_pSpaceTelescope->m_hMainWnd, str, L"Current Application Whill Be Closed", MB_YESNO | MB_ICONWARNING | MB_SYSTEMMODAL);
-		//if (nRet == IDYES) {
-		//	if (::IsWindow(g_pSpaceTelescope->m_hMainWnd))
-		//	{
-		//		monitor.StopAll();
-		//		::SetParent(g_pSpaceTelescope->m_hCosmosWnd, g_pSpaceTelescope->m_hMainWnd);
-		//		::PostMessageW(g_pSpaceTelescope->m_hMainWnd, WM_CLOSE, 0, 0);
-		//		::PostQuitMessage(0);
-		//	}
-		//}
 	}
 	m_bEnableAllDllInject = true;
 }
 
-void CSpaceTelescope::VerifyandMonitorInit() {
+void CSpaceTelescope::CreatorSecureInit() {
 	// 设置强 ACL（阻止普通用户写入/删除）
-	//CreatorMonitor::SetSecureDirectoryAcl(m_strAgentPath);
-	//CreatorMonitor::SetSecureDirectoryAcl(m_strAppPath);
+	if (m_bDirectoryACLSecure) {
+		CreatorMonitor::SetSecureDirectoryAcl(m_strAgentPath);
+		CreatorMonitor::SetSecureDirectoryAcl(m_strAppPath);
+	}
 
 	// ★ 启用文件夹事件监控：
 	monitor.SetWatchDirectories(true);
@@ -4103,10 +4256,6 @@ void CSpaceTelescope::VerifyandMonitorInit() {
 			strToken = strSource.Tokenize(_T(","), nPos);
 		}
 	}
-
-	// 添加多个需要监控的目录
-	monitor.Start(m_strAppPath, true);
-	monitor.AddDirectory(m_strAgentPath, true);
 
 	while (m_strCreatorAppWhiteListData.Find(_T(",,")) != -1)
 		m_strCreatorAppWhiteListData.Replace(_T(",,"), _T(","));
@@ -4320,7 +4469,6 @@ void CSpaceTelescope::VerifyandMonitorInit() {
 		// 调用 TaskDialogIndirect
 		int nClickedButton = 0;
 		HRESULT hr = TaskDialogIndirect(&tdc, &nClickedButton, NULL, NULL);
-		//::MessageBox(m_hMainWnd, _T("Find UnSafe Components at Primary Application:\r\n\r\n") + m_strCreatorAppUnSignedData, L"Current Application Whill Be Run as Developer Model", MB_OK | MB_ICONWARNING | MB_SYSTEMMODAL);
 	}
 
 	if (m_strCreatorAgentUnSignedData.IsEmpty() == false) {
@@ -4360,9 +4508,12 @@ void CSpaceTelescope::VerifyandMonitorInit() {
 
 		// 调用 TaskDialogIndirect
 		int nClickedButton = 0;
-		HRESULT hr = TaskDialogIndirect(&tdc, &nClickedButton, NULL, NULL);
-		//::MessageBox(m_hMainWnd, _T("Find UnSafe Components at Agent Application:\r\n\r\n") + m_strCreatorAgentUnSignedData, L"Current Application Whill Be Run as Developer Model", MB_OK | MB_ICONWARNING | MB_SYSTEMMODAL);
+		TaskDialogIndirect(&tdc, &nClickedButton, NULL, NULL);
 	}
+
+	// 添加多个需要监控的目录
+	monitor.Start(m_strAppPath, true);
+	monitor.AddDirectory(m_strAgentPath, true);
 
 	if (g_hEvent2) {
 		WaitForSingleObject(g_hEvent2, INFINITE);
@@ -4406,10 +4557,7 @@ void CSpaceTelescope::VerifyandMonitorInit() {
 
 			// 调用 TaskDialogIndirect
 			int nClickedButton = 0;
-			HRESULT hr = TaskDialogIndirect(&tdc, &nClickedButton, NULL, NULL);
-
-			//CString strAppNativeWorkSpacePath = m_strAgentPath + m_strExeName + _T("WorkSpace.NET.dll");
-			//::MessageBox(NULL, _T("函数:\r\n\r\n") + strAppNativeWorkSpacePath + _T("\r\n初始化错误"), L"Current Application Whill Be Run as Developer Model", MB_OK | MB_ICONWARNING | MB_SYSTEMMODAL);
+			TaskDialogIndirect(&tdc, &nClickedButton, NULL, NULL);
 		}
 	}
 }
@@ -4420,7 +4568,7 @@ void CSpaceTelescope::CosmosLoad()
 	CString _strWebRTPath = m_szBuffer;
 	int nPos = _strWebRTPath.ReverseFind('\\');
 	m_strWebRTPath = _strWebRTPath.Left(nPos + 1);
-
+	::SetDllDirectory(m_strWebRTPath);
 	TCHAR szDriver[MAX_PATH] = { 0 };
 	TCHAR szDir[MAX_PATH] = { 0 };
 	TCHAR szExt[MAX_PATH] = { 0 };
@@ -4434,20 +4582,8 @@ void CSpaceTelescope::CosmosLoad()
 	if (::PathFileExists(m_strAgentPath) == false) {
 		m_strAgentPath = m_strAppPath;
 		m_strConfigFile = m_strAgentPath + m_strExeName;
-		m_strConfigFile += _T(".exe.policy");
+		m_strConfigFile += _T(".aiagent.policy");
 	}
-	else {
-		if (m_bAgentModel == false)
-		{
-			m_bAgentModel = true;
-			m_strConfigFile = m_strAgentPath;
-			nPos = m_strConfigFile.ReverseFind('\\');
-			m_strAgentPath = m_strConfigFile.Left(nPos + 1);
-			m_strAgentExeFile = m_strConfigFile.Mid(nPos + 1);
-			m_strAgentExeFile.Replace(_T(".exe.policy"), _T(""));
-		}
-	}
-	::SetDllDirectory(m_strWebRTPath);
 
 	m_strConfigFile.MakeLower();
 	if (::PathFileExists(m_strConfigFile))
@@ -4457,18 +4593,14 @@ void CSpaceTelescope::CosmosLoad()
 			m_strProductName = m_Parse.attr(_T("productname"), m_strExeName).MakeLower();
 			m_strCompanyName = m_Parse.attr(_T("companyname"), m_strExeName + _T(" team")).MakeLower();
 			if (m_bAgentModel) {
+				m_bDirectoryACLSecure = m_Parse.attrBool(_T("aclsecure"));
 				m_strCreatorMonitorExt = m_Parse.attr(_T("monitorexcludeext"), _T(".tmp,.temp")).MakeLower();
-				m_strCreatorAppWhiteListData = m_Parse.attr(_T("apptrustedfolderlist"), _T("component,webpage,template,image")).MakeLower();
-				m_strCreatorAgentWhiteListData = m_Parse.attr(_T("agenttrustedfolderlist"), _T("component,webpage,template,image")).MakeLower();
 				m_strCreatorAppCheckExt = m_Parse.attr(_T("appcheckext"), _T(".exe,.dll,.ocx,.msi,.xml,.policy,.json,.js")).MakeLower();
 				m_strCreatorAgentCheckExt = m_Parse.attr(_T("agentcheckext"), _T(".exe,.dll,.ocx,.msi")).MakeLower();
 				m_strCreatorEvSignCheckExt = m_Parse.attr(_T("evsignext"), _T(".exe,.dll,.ocx,.msi")).MakeLower();
-				if (theApp.m_bAsynLodeMode == false) {
-					//HWND hWnd = Creator::FindMainWindowOfCurrentProcess();
-					//if (::IsWindow(hWnd))
-					//{
-					//	::MessageBox(hWnd, L"", L"", MB_OK);
-					//}
+				m_strCreatorAppWhiteListData = m_Parse.attr(_T("apptrustedfolderlist"), _T("component,webpage,template,image")).MakeLower();
+				m_strCreatorAgentWhiteListData = m_Parse.attr(_T("agenttrustedfolderlist"), _T("component,webpage,template,image")).MakeLower();
+				if (!theApp.m_bAsynLodeMode) {
 					CString strInject = m_Parse.attr(_T("inject"), _T(""));
 					strInject.Trim();
 					if (strInject.CompareNoCase(_T("false"))) {
@@ -4477,18 +4609,11 @@ void CSpaceTelescope::CosmosLoad()
 						m_Parse.SaveFile(m_strConfigFile);
 					}
 				}
+				SetEvent(theApp.m_hCreatorInitEvent);
+				BuildConfigDataFile(m_strExeName, m_strProductName, m_strCompanyName);
 			}
 		}
 	}
-	if (m_bAgentModel == false)
-		return;
-
-	if (theApp.m_bAsynLodeMode) {
-		::PostThreadMessage(theApp.m_dwMainThreadID, WM_COSMOSMSG, 0, 20250531);
-	}
-
-	BuildConfigDataFile(m_strExeName, m_strProductName, m_strCompanyName);
-	SetEvent(theApp.m_hVerifyandMonitorInitEvent);
 }
 
 void CSpaceTelescope::WebRTInit()
@@ -4601,7 +4726,8 @@ void CSpaceTelescope::ExitInstance()
 		}
 		m_mapEvent.clear();
 	}
-
+	if (::IsWindow(m_hCosmosWnd))
+		::DestroyWindow(m_hCosmosWnd);
 	if (m_hCBTHook)
 		UnhookWindowsHookEx(m_hCBTHook);
 	if (m_hForegroundIdleHook)
@@ -5134,22 +5260,21 @@ CString CSpaceTelescope::GetTextResource(CString strFile, int Index, CString str
 	return text.c_str();
 }
 
-bool CSpaceTelescope::ProcessMsg(MSG msg)
+void CSpaceTelescope::InitMainPage(CString& strHTML)
 {
-	return false;
-}
-
-bool g_bInit = false;
-void CSpaceTelescope::BrowserAppStart()
-{
-	Init();
-	if (g_bInit == true)
-		return;
-	g_bInit = true;
-	if (g_hEvent) {
-		WaitForSingleObject(g_hEvent, INFINITE);
-		CloseHandle(g_hEvent);
-		g_hEvent = nullptr;
+	CTangramXmlParse m_Parse;
+	if (m_Parse.LoadXml(strHTML))
+	{
+		if (g_pSpaceTelescope->m_bIsClrCoreApp == false)
+			g_pSpaceTelescope->m_bIsClrCoreApp = m_Parse.attrBool(_T("dotnetapp"), false);
+		CString CorePath = g_pSpaceTelescope->m_strProgramFilePath;
+		CorePath += _T("\\dotnet\\shared\\Microsoft.NETCore.App\\");
+		if (g_pSpaceTelescope->m_bIsClrCoreApp && ::PathIsDirectory(CorePath)) {
+			g_pSpaceTelescope->m_strMiniClrCoreVer = m_Parse.attr(_T("minidotnetver"), _T("6.0.0.0"));
+		}
+		else {
+			g_pSpaceTelescope->m_bIsClrCoreApp = false;
+		}
 	}
 
 	CString strAppNativeWorkSpacePath = m_strAgentPath + m_strExeName + _T("WorkSpace.NET.dll");
@@ -5175,6 +5300,25 @@ void CSpaceTelescope::BrowserAppStart()
 			}
 		}
 	}
+}
+
+bool CSpaceTelescope::ProcessMsg(MSG msg)
+{
+	return false;
+}
+
+bool g_bInit = false;
+void CSpaceTelescope::BrowserAppStart()
+{
+	Init();
+	if (g_bInit == true)
+		return;
+	g_bInit = true;
+	if (g_hEvent) {
+		WaitForSingleObject(g_hEvent, INFINITE);
+		CloseHandle(g_hEvent);
+		g_hEvent = nullptr;
+	}
 
 	SetEvent(g_hEvent2);
 
@@ -5189,7 +5333,7 @@ void CSpaceTelescope::BrowserAppStart()
 		m_strStartupURL = strURL;
 		m_nAppType = APP_BROWSERAPP;
 	}
-	else if (m_bAgentModel) {
+	else if (theApp.m_bAgentModel) {
 		HANDLE hHandle = ::GetProp(m_hMainWnd, _T("WebRTFrameWndInfo"));
 		if (hHandle == NULL) {
 			CString strSRC = m_strWebRTPath + _T("template\\");
@@ -5272,7 +5416,7 @@ void CSpaceTelescope::BrowserAppStart()
 					if (strName.CompareNoCase(_T("ntp")) == 0) {
 						if (m_ParseHtml.GetChild(_T("nucleus"))) {
 							bNtp = true;
-							g_pSpaceTelescope->m_strNtpXml = m_ParseHtml.xml();
+							m_strNtpXml = m_ParseHtml.xml();
 							m_hHostBrowserWnd = m_pBrowserFactory->CreateBrowser(NULL, _T("tangram://newtab|"));
 						}
 					}
@@ -5513,12 +5657,22 @@ int CSpaceTelescope::LoadCLR()
 {
 	if (m_pClrCoreHost != nullptr || m_pClrHost != nullptr)
 		return 0;
+	bool bCoreCLR = ::GetModuleHandle(_T("hostfxr.dll")) != NULL || m_bIsClrCoreApp;
+
 	CString strCosmosPath = m_strAppPath + _T("Cosmos.dll");
+	//CString strCosmosCorePath = m_strAppPath + _T("CosmosCore.dll");
+
+	//if (bCoreCLR && ::PathFileExists(strCosmosCorePath))
+	//	strCosmosPath = strCosmosCorePath;
+
 	if (::PathFileExists(strCosmosPath) == false) {
 		TCHAR m_szBuffer[MAX_PATH];
 		if (SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0, m_szBuffer) == S_OK) {
 			strCosmosPath = CString(m_szBuffer);
-			strCosmosPath += _T("\\Tangram\\Creator\\Cosmos.dll");
+			if (bCoreCLR)
+				strCosmosPath += _T("\\Tangram\\Creator\\CosmosCore.dll");
+			else
+				strCosmosPath += _T("\\Tangram\\Creator\\Cosmos.dll");
 		}
 	}
 
@@ -6409,7 +6563,7 @@ HWND CSpaceTelescope::GetMainWnd(int nChildID, CString strAppProxy) {
 					switch (pWebRTFrameWndInfo->m_nFrameType) {
 					case 1:
 					{
-						CCloudMDTFrame* pMainFrame = g_pSpaceTelescope->AttachCloudMDTFrame(m_hMainWnd, false);
+						CCloudMDTFrame* pMainFrame = AttachCloudMDTFrame(m_hMainWnd, false);
 					}
 					break;
 					}
@@ -6437,7 +6591,7 @@ HWND CSpaceTelescope::GetMainWnd(int nChildID, CString strAppProxy) {
 				WebRTFrameWndInfo* pWebRTFrameWndInfo = (WebRTFrameWndInfo*)hHandle;
 				switch (pWebRTFrameWndInfo->m_nFrameType) {
 				case 1:
-					CCloudMDTFrame * pMainFrame = g_pSpaceTelescope->AttachCloudMDTFrame(m_hMainWnd, false);
+					CCloudMDTFrame * pMainFrame = AttachCloudMDTFrame(m_hMainWnd, false);
 					break;
 				}
 			}
@@ -8053,26 +8207,6 @@ CString CSpaceTelescope::ComputeHash(CString source)
 	return strRet;
 }
 
-CString CSpaceTelescope::GetPolicyFile() {
-	CString strArg = Creator::GetArgFromCmdLine(_T("/StartInfo"));
-	if (!strArg.IsEmpty()) {
-		int nPos = strArg.Find(_T(":"));
-		if (nPos != -1) {
-			m_bAgentModel = true;
-			strArg = strArg.Mid(nPos + 1);
-			if (::PathFileExists(strArg)) {
-				m_strConfigFile = strArg;
-				nPos = m_strConfigFile.ReverseFind('\\');
-				m_strAgentPath = m_strConfigFile.Left(nPos + 1);
-				m_strAgentExeFile = m_strConfigFile.Mid(nPos + 1);
-				m_strAgentExeFile.Replace(_T(".exe.policy"), _T(""));
-				return m_strAgentExeFile;
-			}
-		}
-	}
-	return _T("");
-}
-
 CString CSpaceTelescope::GetFileMD5(CString strSRC)
 {
 	DWORD dwDesiredAccess = GENERIC_READ;
@@ -8120,7 +8254,6 @@ CString CSpaceTelescope::GetFileMD5(CString strSRC)
 
 	return _T("");
 }
-
 
 CString GetFileMD5(const CString& dllPath) {
 	return g_pSpaceTelescopeImpl->GetFileMD5(dllPath);
@@ -8785,19 +8918,6 @@ __declspec(dllexport) bool __stdcall  InitBrowser() {
 			}
 		}
 	}
-	//if (hModuleAgent) {
-	//	auto t = create_task([]()
-	//		{
-	//			while (1)
-	//			{
-	//				Sleep(1500);
-	//				::PostThreadMessage(g_pSpaceTelescope->m_dwThreadID, WM_COSMOSMSG, 0, 20250531);
-	//				::PostThreadMessage(g_pSpaceTelescope->m_dwThreadID, WM_CHROMEAPPINIT, 0, 0);
-	//				break;
-	//			}
-	//			return;
-	//		});
-	//}
 	return false;
 }
 
@@ -9688,7 +9808,7 @@ CString CSpaceTelescope::GetCreatorData(CString strKey)
 		return _T("false");
 	}
 	else if (strKey.CompareNoCase(_T("AgentModel")) == 0) {
-		if (m_bAgentModel)
+		if (theApp.m_bAgentModel)
 			return _T("true");
 	}
 	else if (strKey.Find(_T("CreatorInitInfo-")) == 0) {
@@ -9735,7 +9855,7 @@ void CSpaceTelescope::SetCreatorData(CString strKey, CString strVal) {
 	//	return;
 	//}
 
-	if (m_bAgentModel && strVal == _T("InitStartInfo") && ::PathFileExists(m_strStartupURL) == false) {
+	if (theApp.m_bAgentModel && strVal == _T("InitStartInfo") && ::PathFileExists(m_strStartupURL) == false) {
 		m_strStartupURL = m_strAgentPath + m_strExeName + _T(".app.html");
 		if (::PathFileExists(m_strStartupURL))
 			return;
