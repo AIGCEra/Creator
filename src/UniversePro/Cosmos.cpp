@@ -2150,6 +2150,30 @@ namespace Creator {
 		return cmd.str();
 	}
 
+	inline CString GetArgFromCmdLine(CString strArgName)
+	{
+		LPWSTR cmdLine = GetCommandLineW();
+		int argc;
+		LPWSTR* argv = CommandLineToArgvW(cmdLine, &argc);
+		if (argv == nullptr) {
+			return L"";
+		}
+
+		std::wstring startInfoPath;
+		for (int i = 0; i < argc; ++i) {
+			// 查找 /StartInfo 参数（不区分大小写）
+			if (_wcsicmp(argv[i], strArgName) == 0) {
+				// 确保下一个参数存在
+				if (i + 1 < argc) {
+					startInfoPath = argv[i + 1];
+				}
+				break;
+			}
+		}
+		LocalFree(argv);
+		return startInfoPath.c_str();
+	}
+
 	// ---------- CString → UTF-8 ----------
 	inline std::string CStringToUtf8(const CString& str) {
 		if (str.IsEmpty()) return {};
@@ -5333,7 +5357,7 @@ void CSpaceTelescope::BrowserAppStart()
 		m_strStartupURL = strURL;
 		m_nAppType = APP_BROWSERAPP;
 	}
-	else if (theApp.m_bAgentModel) {
+	else if (m_bAgentModel) {
 		HANDLE hHandle = ::GetProp(m_hMainWnd, _T("WebRTFrameWndInfo"));
 		if (hHandle == NULL) {
 			CString strSRC = m_strWebRTPath + _T("template\\");
@@ -9808,7 +9832,7 @@ CString CSpaceTelescope::GetCreatorData(CString strKey)
 		return _T("false");
 	}
 	else if (strKey.CompareNoCase(_T("AgentModel")) == 0) {
-		if (theApp.m_bAgentModel)
+		if (m_bAgentModel)
 			return _T("true");
 	}
 	else if (strKey.Find(_T("CreatorInitInfo-")) == 0) {
@@ -9855,7 +9879,7 @@ void CSpaceTelescope::SetCreatorData(CString strKey, CString strVal) {
 	//	return;
 	//}
 
-	if (theApp.m_bAgentModel && strVal == _T("InitStartInfo") && ::PathFileExists(m_strStartupURL) == false) {
+	if (m_bAgentModel && strVal == _T("InitStartInfo") && ::PathFileExists(m_strStartupURL) == false) {
 		m_strStartupURL = m_strAgentPath + m_strExeName + _T(".app.html");
 		if (::PathFileExists(m_strStartupURL))
 			return;

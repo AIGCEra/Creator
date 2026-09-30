@@ -124,30 +124,6 @@ public:
 	void				SetHook(DWORD ThreadID);
 	wstring				json_to_xml(wstring& jsonStr);
 
-	CString GetArgFromCmdLine(CString strArgName)
-	{
-		LPWSTR cmdLine = GetCommandLineW();
-		int argc;
-		LPWSTR* argv = CommandLineToArgvW(cmdLine, &argc);
-		if (argv == nullptr) {
-			return L"";
-		}
-
-		std::wstring startInfoPath;
-		for (int i = 0; i < argc; ++i) {
-			// 查找 /StartInfo 参数（不区分大小写）
-			if (_wcsicmp(argv[i], strArgName) == 0) {
-				// 确保下一个参数存在
-				if (i + 1 < argc) {
-					startInfoPath = argv[i + 1];
-				}
-				break;
-			}
-		}
-		LocalFree(argv);
-		return startInfoPath.c_str();
-	}
-
 	static LRESULT CALLBACK CBTProc(int nCode, WPARAM wParam, LPARAM lParam);
 	static LRESULT CALLBACK ForegroundIdleProc(int nCode, WPARAM wParam, LPARAM lParam);
 	static LRESULT CALLBACK CosmosMsgWndProc(_In_ HWND hWnd, UINT msg, _In_ WPARAM wParam, _In_ LPARAM lParam);

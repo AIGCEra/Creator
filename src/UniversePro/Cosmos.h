@@ -199,6 +199,7 @@ public:
 	int										m_nOfficeDocsSheet;
 	int										m_nTangramNodeCommonData;
 #endif
+	bool									m_bAgentModel;
 	bool									m_bIsClrCoreApp;
 	bool									m_bIsProcessCmdforNewOrOpen = false;;
 	bool									m_bMainWndNotFound = true;

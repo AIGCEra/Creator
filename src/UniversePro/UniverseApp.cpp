@@ -114,13 +114,13 @@ void CHelperWnd::OnFinalMessage(HWND hWnd)
 CUniverse::CUniverse()
 {
 	m_bHostCLR = false;
+	m_bAsynLodeMode = false;
 	m_bAppStarting = true;
 	m_hMainHook = NULL;
 	m_hInitComplete = NULL;
 	m_hCreatorInitEvent = NULL;
 	m_strInitInfo = _T("");
 	m_strCosmosVer = _T("");
-	m_strCmdLineInfo = _T("");
 }
 
 CUniverse::~CUniverse()

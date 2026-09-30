@@ -252,7 +252,7 @@ namespace Browser {
 								if (strURLHeader.CompareNoCase(_T("host")) == 0)
 								{
 									CString s = strURL.Mid(nPos2 + 1);
-									if (theApp.m_bAgentModel)
+									if (g_pSpaceTelescope->m_bAgentModel)
 										strURL = g_pSpaceTelescope->m_strAgentPath + s;
 									else
 										strURL = g_pSpaceTelescope->m_strAppPath + s;
@@ -1037,7 +1037,7 @@ namespace Browser {
 								if (strURLHeader.CompareNoCase(_T("host")) == 0)
 								{
 									CString s = strURL.Mid(nPos2 + 1);
-									if (theApp.m_bAgentModel)
+									if (g_pSpaceTelescope->m_bAgentModel)
 										strURL = g_pSpaceTelescope->m_strAgentPath + s;
 									else
 										strURL = g_pSpaceTelescope->m_strAppPath + s;
@@ -1321,7 +1321,7 @@ namespace Browser {
 								if (strURLHeader.CompareNoCase(_T("host")) == 0)
 								{
 									CString s = strURL.Mid(nPos2 + 1);
-									if (theApp.m_bAgentModel)
+									if (g_pSpaceTelescope->m_bAgentModel)
 										strURL = g_pSpaceTelescope->m_strAgentPath + s;
 									else
 										strURL = g_pSpaceTelescope->m_strAppPath + s;
@@ -1713,7 +1713,7 @@ namespace Browser {
 								if (strURLHeader.CompareNoCase(_T("host")) == 0)
 								{
 									CString s = strURL.Mid(nPos2 + 1);
-									if (theApp.m_bAgentModel)
+									if (g_pSpaceTelescope->m_bAgentModel)
 										strURL = g_pSpaceTelescope->m_strAgentPath + s;
 									else
 										strURL = g_pSpaceTelescope->m_strAppPath + s;
@@ -2326,7 +2326,7 @@ namespace Browser {
 						if (strURLHeader.CompareNoCase(_T("host")) == 0)
 						{
 							CString s = strUrl.Mid(nPos2 + 1);
-							if (theApp.m_bAgentModel)
+							if (g_pSpaceTelescope->m_bAgentModel)
 								strUrl = g_pSpaceTelescope->m_strAgentPath + s;
 							else
 								strUrl = g_pSpaceTelescope->m_strAppPath + s;
@@ -2485,7 +2485,7 @@ namespace Browser {
 						if (strURLHeader.CompareNoCase(_T("host")) == 0)
 						{
 							CString s = strUrl.Mid(nPos2 + 1);
-							if (theApp.m_bAgentModel)
+							if (g_pSpaceTelescope->m_bAgentModel)
 								strUrl = g_pSpaceTelescope->m_strAgentPath + s;
 							else
 								strUrl = g_pSpaceTelescope->m_strAppPath + s;
